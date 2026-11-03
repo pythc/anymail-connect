@@ -28,7 +28,7 @@
 - [x] 自托管容器、OIDC 配置示例、部署/备份/升级/回滚说明
 - [x] 功能、权限、恢复、协议实验室、HTTP MCP 集成测试
 - [x] 人工代码 review、依赖审计、Codex Security 扫描；确认页问题修复与回归（见 docs/review.zh-CN.md）
-- [ ] 更新 README、实现矩阵、测试报告并推送 GitHub
+- [x] 更新 README、实现矩阵、测试报告并推送 GitHub（远程 main 已核验；CI 回执见 Actions）
 
 ## 外部验收：不能由本地模拟测试代替
 - [ ] QQ / 163 / iCloud 真账号

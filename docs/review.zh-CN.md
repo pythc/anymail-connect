@@ -10,7 +10,7 @@ Codex Security diff scan 已完成并封存，ID 为 `93b2ea6a-cfe2-49aa-9d5d-db
 
 该问题为：可信发送确认页没有显示实际发件账号和可识别附件清单。生产 renderer 的隔离复现证明不同账号可以显示相同预览；既有账号归属、浏览器点击、CSRF 和 revision 检查有效，未证明静默发送或跨租户访问。
 
-修复在冻结扫描之后完成：
+修复在冻结扫描之后完成，修复代码提交为 `4fda8427bbea881511c59908ccffce0f9d0a3701`：
 
 - 服务端准备意图时解析发件邮箱和附件名称、类型、字节长度、文件字节 SHA-256，连同账号、草稿版本、内容与计划时间纳入规范化摘要；规范化避免 PostgreSQL JSONB 重排键影响验证。
 - 确认页显示全部绑定信息，提供当前用户鉴权的附件检查链接；批准和提交前重新检查，缺少新绑定字段的旧意图拒绝继续提交。
@@ -48,3 +48,7 @@ Gitleaks 对当时 3 个 Git 提交扫描，结果未发现凭证泄漏；未将
 ## 扫描计量
 
 插件返回 `coverage=complete`、`source=codex_rollout`，涉及 5 个线程：总 token **22,090,634**，输入 **22,037,447**（其中缓存输入 **21,804,160**），输出 **53,187**。这是插件按关联 rollout 统计的用量，包含上下文/缓存，不是本项目代码规模、独立推理量或费用估算。
+
+## 推送回执
+
+实现与修复已推送至公开仓库 [pythc/anymail-connect](https://github.com/pythc/anymail-connect)，首次完整推送远程 main 回读为 `7693b441a9ade87920421c063450efe826b43a90`。后续本节/TODO 状态更新为文档变更。每次推送的精确 SHA、运行步骤和最终 CI 结论以 [GitHub Actions](https://github.com/pythc/anymail-connect/actions) 为准，本地验证不代替远程 CI 结果。
