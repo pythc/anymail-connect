@@ -1,0 +1,16 @@
+# Local credentials and private test data
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+private-fixtures/
+*.pem
+*.key
+
+# Build and local runtime artifacts
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
