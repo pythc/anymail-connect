@@ -3,6 +3,7 @@ import {
   type ImapFlowOptions,
   type FetchMessageObject,
 } from "imapflow";
+import { isIP } from "node:net";
 import nodemailer from "nodemailer";
 import { simpleParser } from "mailparser";
 import {
@@ -51,10 +52,13 @@ export class ImapProvider implements MailProvider {
       port: c.imap.port,
       secure: c.imap.secure,
       ...(c.imap.secure ? {} : { doSTARTTLS: true }),
-      servername: c.imap.host,
+      ...(isIP(c.imap.host) ? {} : { servername: c.imap.host }),
       auth: { user: c.username, pass: c.password },
       logger: false,
-      tls: { rejectUnauthorized: true, servername: c.imap.host },
+      tls: {
+        rejectUnauthorized: true,
+        ...(isIP(c.imap.host) ? {} : { servername: c.imap.host }),
+      },
       connectionTimeout: 15_000,
       socketTimeout: 30_000,
       maxLiteralSize: MAX_MESSAGE,
@@ -283,7 +287,10 @@ export class ImapProvider implements MailProvider {
       secure: c.smtp.secure,
       requireTLS: !c.smtp.secure,
       auth: { user: c.username, pass: c.password },
-      tls: { servername: c.smtp.host, rejectUnauthorized: true },
+      tls: {
+        ...(isIP(c.smtp.host) ? {} : { servername: c.smtp.host }),
+        rejectUnauthorized: true,
+      },
       connectionTimeout: 15_000,
       socketTimeout: 30_000,
       logger: false,

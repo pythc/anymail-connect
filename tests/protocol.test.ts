@@ -72,11 +72,11 @@ test("actual TLS IMAP and SMTP protocol laboratory", async (t) => {
       email: "test@example.com",
       username: "testuser",
       password: "testpass",
-      imap: { host: "localhost", port, secure: true },
-      smtp: { host: "localhost", port: smtpPort, secure: true },
+      imap: { host: "127.0.0.1", port, secure: true },
+      smtp: { host: "127.0.0.1", port: smtpPort, secure: true },
       saveSentCopy: true,
     },
-    { privateEndpoints: [`localhost:${port}`, `localhost:${smtpPort}`] },
+    { privateEndpoints: [`127.0.0.1:${port}`, `127.0.0.1:${smtpPort}`] },
   );
   t.after(async () => {
     await imap.stop();

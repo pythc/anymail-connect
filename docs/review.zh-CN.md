@@ -52,3 +52,7 @@ Gitleaks 对当时 3 个 Git 提交扫描，结果未发现凭证泄漏；未将
 ## 推送回执
 
 实现与修复已推送至公开仓库 [pythc/anymail-connect](https://github.com/pythc/anymail-connect)，首次完整推送远程 main 回读为 `7693b441a9ade87920421c063450efe826b43a90`。后续本节/TODO 状态更新为文档变更。每次推送的精确 SHA、运行步骤和最终 CI 结论以 [GitHub Actions](https://github.com/pythc/anymail-connect/actions) 为准，本地验证不代替远程 CI 结果。
+
+第一轮 Linux CI 暴露了实验室 `localhost` 首选 IPv6、服务器只绑定 IPv4 的夹具错误。实验室连接地址改为明确的 `127.0.0.1`，继续验证证书 IP SAN 和全部协议行为；未通过跳过测试或关闭 TLS 校验解决。CI 数据库健康检查也显式指定 postgres 用户，避免无关的 root 角色错误日志。
+
+显式 IP 连接还暴露 Node 新版禁止将 IP 放入 TLS SNI 的兼容问题。IMAP/SMTP 仅在配置主机为 DNS 名时设置 SNI；IP 连接保留 TLS host/IP SAN 校验和 `rejectUnauthorized=true`。协议实验室现在同时验证 IP 配置场景。
