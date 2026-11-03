@@ -34,7 +34,7 @@ Graph 邮件头需显式 `$select`，实现依据为 [Microsoft Graph get messag
 
 源码复核还修复上传权限检查和落库之间的撤权竞争：普通文档写入改为在账号锁内重新检查，显式事务调用方先锁账号；暂停上传后撤权、再恢复上传的回归证明不会重新写入私有数据。回复/转发增加 `source_attachment_ids` 显式附件选择，并检查来源归属和实际字节预算。这些均为封存扫描后的人工复核与测试证据。
 
-最终源码镜像 `anymail-connect:validation` 构建通过，image ID 为 `sha256:5c013c7a3591ad63a1ab29ff4c1bee46533e885387a39699a7598783b96da337`（本机验证镜像，未发布镜像仓库）。在 `--network=none` 容器中执行编译后的 Gmail 完整正文映射、提取 worker 和 PDF 模块加载 smoke 通过。此结果不代表公网部署。
+代码提交 `1268be390cd9b4ca385cb3792c574e572b2dff47` 的镜像 `anymail-connect:validation` 构建通过，image ID 为 `sha256:ddb8267200a842fd580b6e19a4e56935c2157cce5f11e50b05cc6d078b5f2b8a`（本机验证镜像，未发布镜像仓库）。Gmail 完整正文映射、提取 worker 和 PDF 模块加载曾在此前修复镜像的断网容器中通过；该最终镜像又执行断网的编译后 worker smoke 并通过。此结果不代表公网部署。
 
 Gitleaks 对当时 3 个 Git 提交扫描，结果未发现凭证泄漏；未将 `.env`、生成的 realm、测试会话或其他忽略目录加入提交。
 
@@ -56,3 +56,5 @@ Gitleaks 对当时 3 个 Git 提交扫描，结果未发现凭证泄漏；未将
 第一轮 Linux CI 暴露了实验室 `localhost` 首选 IPv6、服务器只绑定 IPv4 的夹具错误。实验室连接地址改为明确的 `127.0.0.1`，继续验证证书 IP SAN 和全部协议行为；未通过跳过测试或关闭 TLS 校验解决。CI 数据库健康检查也显式指定 postgres 用户，避免无关的 root 角色错误日志。
 
 显式 IP 连接还暴露 Node 新版禁止将 IP 放入 TLS SNI 的兼容问题。IMAP/SMTP 仅在配置主机为 DNS 名时设置 SNI；IP 连接保留 TLS host/IP SAN 校验和 `rejectUnauthorized=true`。协议实验室现在同时验证 IP 配置场景。
+
+代码提交 `1268be390cd9b4ca385cb3792c574e572b2dff47` 的远程 [CI run 41694455997](https://github.com/pythc/anymail-connect/actions/runs/41694455997) 已完成，`check` 与 `browser` 均为 success。前者运行 PGlite/PostgreSQL 各 69 项及构建/格式/依赖审计；后者运行桌面/移动交互与实际 Keycloak 登录。直接 TLS 已在协议实验室运行；STARTTLS 的强制升级和证书身份路径经过源码复核，尚未单独执行运行验收。
