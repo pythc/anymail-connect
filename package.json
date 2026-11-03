@@ -1,0 +1,56 @@
+{
+  "name": "anymail-connect",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "tsc",
+    "start": "node dist/src/main.js",
+    "worker": "node dist/src/worker-main.js",
+    "test": "NODE_EXTRA_CA_CERTS=.test-certs/ca.crt tsx --test --test-concurrency=1 tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test",
+    "migrate": "tsx src/migrate.ts",
+    "pretest": "node scripts/testcert.mjs",
+    "format": "prettier --write src tests scripts",
+    "format:check": "prettier --check src tests scripts",
+    "test:browser": "python3 tests/browser.py"
+  },
+  "dependencies": {
+    "@fastify/cookie": "11.1.5",
+    "@fastify/rate-limit": "11.2.2",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "fastify": "5.12.8",
+    "imapflow": "2.10.0",
+    "ipaddr.js": "2.5.0",
+    "jose": "6.2.15",
+    "mailparser": "3.14.1",
+    "nodemailer": "10.3.1",
+    "openid-client": "6.8.9",
+    "pdfjs-dist": "6.5.438",
+    "pg": "8.23.1",
+    "sanitize-html": "2.18.1",
+    "undici": "8.12.3",
+    "yauzl": "3.4.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.15",
+    "@types/mailparser": "3.9.0",
+    "@types/node": "26.6.6",
+    "@types/pg": "8.23.1",
+    "@types/sanitize-html": "2.16.2",
+    "@types/smtp-server": "3.5.13",
+    "@types/yauzl": "3.4.0",
+    "imapkit": "5.3.1",
+    "prettier": "3.9.10",
+    "smtp-server": "3.21.3",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

@@ -4,7 +4,17 @@ A unified, self-hostable email integration layer for MCP clients, with a planned
 
 面向个人与企业邮箱的统一接入底座：原生 API 保留服务商能力，IMAP/SMTP 扩大兼容范围，通过 MCP 提供可审计的邮件工作流。
 
-**状态：调研与设计，尚无可运行服务。** 本仓库目前没有邮箱适配器、部署实例或已通过的真实邮箱验收；下文均为拟议能力，不是可用功能声明。调研日期：2026-11-04（Asia/Shanghai）。
+**状态：0.1.0 开发实现，可本地构建与验证。** 已有 Gmail API、Graph、IMAP/SMTP、JMAP 适配器，HTTP MCP、OIDC、管理界面、持久草稿/发送队列与同步。真实邮箱、生产部署和 ChatGPT 安装验收尚未完成。更新日期：2026-11-04（Asia/Shanghai）。
+
+当前实现、边界与证据见 [实现状态](docs/implementation.zh-CN.md)、[TODO](TODO.md)、[部署与回滚](docs/deployment.zh-CN.md)。原下方内容为立项设计，实际行为以实现状态为准。
+
+```sh
+npm ci
+npm run check
+npm run build
+```
+
+Node.js 24+；默认测试使用合成邮箱与本机 TLS 协议服务器。部署需配置自己的 PostgreSQL、OIDC 和邮箱授权，见部署文档。
 
 ## 项目定位
 

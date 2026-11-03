@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "anymail-connect",
+  "version": "0.1.0",
+  "description": "Search and organize personal and enterprise mailboxes. Draft and submit mail only through explicit user-approved send operations.",
+  "repository": "https://github.com/pythc/anymail-connect",
+  "license": "UNLICENSED",
+  "keywords": ["email", "imap", "gmail", "outlook", "mcp"]
+}

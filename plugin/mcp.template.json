@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "anymail": {
+      "type": "streamable-http",
+      "url": "https://YOUR-DEPLOYMENT.example/mcp",
+      "extensions": {"com.openai": {"auth": {"type":"oauth","client":{"mode":"provided","clientId":"anymail-chatgpt","tokenEndpointAuthMethod":"none"},"baseScopes":["mail.read","mail.write","mail.send"]}}}
+    }
+  }
+}
