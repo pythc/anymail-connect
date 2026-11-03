@@ -37,7 +37,8 @@ export class Vault {
     }
   }
 }
-export const hash = (s: string) => createHash("sha256").update(s).digest("hex");
+export const hash = (s: string | Buffer) =>
+  createHash("sha256").update(s).digest("hex");
 export const secretEqual = (a: string, b: string) => {
   const aa = Buffer.from(a),
     bb = Buffer.from(b);

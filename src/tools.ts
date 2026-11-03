@@ -271,18 +271,28 @@ export function tools(s: MailService): Tool[] {
   );
   add(
     "drafts_reply",
-    "Prepare reply/reply-all/forward as an application draft. Original attachments are not implicitly forwarded.",
+    "Prepare reply/reply-all/forward as an application draft. Select source_attachment_ids explicitly to copy original attachments into the draft; none are implicitly forwarded.",
     z
       .object({
         account_id: account,
         message_id: identifier,
         mode: z.enum(["reply", "reply_all", "forward"]),
+        source_attachment_ids: z.array(identifier).max(20).default([]),
         text: z.string().max(100_000),
         to: z.array(z.string().email()).max(100).default([]),
       })
       .strict(),
     false,
-    (p, i) => s.reply(p, i.account_id, i.message_id, i.text, i.mode, i.to),
+    (p, i) =>
+      s.reply(
+        p,
+        i.account_id,
+        i.message_id,
+        i.text,
+        i.mode,
+        i.to,
+        i.source_attachment_ids,
+      ),
   );
   add(
     "drafts_prepare_send",
@@ -464,10 +474,22 @@ export function tools(s: MailService): Tool[] {
     async (p, i) => {
       requireScope(p, "mail.read");
       const results: unknown[] = [],
-        failures: unknown[] = [];
+        failures: unknown[] = [],
+        coverage: {
+          account_id: string;
+          scope: string;
+          cursor?: string;
+          has_more: boolean;
+        }[] = [];
       for (const a of (await s.store.accounts(p)).filter((a) => !a.revoked)) {
         try {
           const page = await s.search(p, a.id, { query: i.query, limit: 10 });
+          coverage.push({
+            account_id: a.id,
+            scope: page.coverage,
+            cursor: page.cursor,
+            has_more: Boolean(page.cursor),
+          });
           results.push(
             ...page.items.map((m) => ({
               id: Buffer.from(
@@ -484,7 +506,12 @@ export function tools(s: MailService): Tool[] {
           });
         }
       }
-      return { results, failures };
+      return {
+        results,
+        failures,
+        coverage,
+        truncated: coverage.some((x) => x.has_more),
+      };
     },
   );
   add(
@@ -508,7 +535,11 @@ export function tools(s: MailService): Tool[] {
         title: m.subject,
         text: m.text,
         url: m.source_url,
-        metadata: { account_id: source.account, truncated: m.truncated },
+        metadata: {
+          account_id: source.account,
+          truncated: m.truncated,
+          warnings: m.warnings ?? [],
+        },
       };
     },
   );

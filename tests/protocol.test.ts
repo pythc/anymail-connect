@@ -23,6 +23,16 @@ test("actual TLS IMAP and SMTP protocol laboratory", async (t) => {
       },
       "": {
         folders: {
+          Large: {
+            messages: [
+              {
+                raw:
+                  "From: sender@example.com\r\nTo: test@example.com\r\nSubject: large attachment fixture\r\nContent-Type: application/octet-stream\r\n\r\n" +
+                  "x".repeat(8 * 1024 * 1024 + 1),
+                flags: [],
+              },
+            ],
+          },
           Trash: { "special-use": "\\Trash" },
           Sent: { "special-use": "\\Sent" },
         },
@@ -82,6 +92,19 @@ test("actual TLS IMAP and SMTP protocol laboratory", async (t) => {
       assert.match(m.text, /Body test/);
       assert.equal(m.read, false);
       assert.equal((await p.get(m.id)).read, false);
+    },
+  );
+  await t.test(
+    "oversize mail stays listable while bounded body fetch is rejected",
+    async () => {
+      const page = await p.search({ query: "", folder: "Large", limit: 20 });
+      assert.equal(page.items.length, 1);
+      assert.equal(page.items[0]!.subject, "large attachment fixture");
+      await assert.rejects(p.get(page.items[0]!.id), /MESSAGE_TOO_LARGE/);
+      await assert.rejects(
+        p.attachment(page.items[0]!.id, "0"),
+        /MESSAGE_TOO_LARGE/,
+      );
     },
   );
   await t.test(

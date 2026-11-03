@@ -73,16 +73,20 @@ export class JmapProvider implements MailProvider {
     return { email: s.username };
   }
   private map(m: any): Message {
+    const messageId = (v: string) => `<${v.replace(/^<|>$/g, "")}>`;
     const vals = Object.values(m.bodyValues ?? {}) as any[];
     return {
       id: m.id,
       subject: m.subject || "",
       from: m.from?.[0]?.email || "",
       to: (m.to || []).map((a: any) => a.email),
+      cc: (m.cc || []).map((a: any) => a.email),
+      replyTo: (m.replyTo || []).map((a: any) => a.email),
       date: m.receivedAt,
       text: vals.map((x) => x.value).join("\n"),
       read: Boolean(m.keywords?.["$seen"]),
-      messageId: m.messageId?.[0],
+      messageId: m.messageId?.[0] ? messageId(m.messageId[0]) : undefined,
+      references: (m.references ?? []).map(messageId),
       threadId: m.threadId,
       threadSource: "provider",
       attachments: (m.attachments || []).map((a: any) => ({

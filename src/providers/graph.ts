@@ -9,6 +9,7 @@ import {
   type OutgoingAttachment,
   type Mutation,
 } from "../domain.js";
+import { convert } from "html-to-text";
 import { Rest, enc, cursorEncode, cursorDecode, odata } from "./rest.js";
 export function graphMessage(m: any): Message {
   const headers = Object.fromEntries(
@@ -26,10 +27,15 @@ export function graphMessage(m: any): Message {
     replyTo: (m.replyTo ?? []).map((x: any) => x.emailAddress.address),
     date: m.receivedDateTime ?? m.createdDateTime ?? new Date(0).toISOString(),
     text:
-      m.body?.contentType === "text" ? m.body.content : (m.bodyPreview ?? ""),
+      m.body?.contentType?.toLowerCase() === "text"
+        ? m.body.content
+        : m.body?.content
+          ? convert(m.body.content, { wordwrap: false })
+          : (m.bodyPreview ?? ""),
     html: m.body?.contentType === "html" ? m.body.content : undefined,
     read: Boolean(m.isRead),
     messageId: m.internetMessageId,
+    references: headers.references?.match(/<[^>]+>/g) ?? [],
     threadId: m.conversationId,
     threadSource: "provider",
     folder: m.parentFolderId,
@@ -125,7 +131,7 @@ export class GraphProvider implements MailProvider {
   async get(id: string) {
     return graphMessage(
       await this.api.call(
-        `${this.root}/messages/${enc(id)}?$expand=attachments($select=id,name,contentType,size)`,
+        `${this.root}/messages/${enc(id)}?$select=id,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,createdDateTime,body,bodyPreview,isRead,internetMessageId,internetMessageHeaders,conversationId,parentFolderId,categories&$expand=attachments($select=id,name,contentType,size)`,
         "GET",
         undefined,
         { Prefer: 'IdType="ImmutableId"' },

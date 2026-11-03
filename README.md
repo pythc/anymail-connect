@@ -6,6 +6,8 @@ A unified, self-hostable email integration layer for MCP clients, with a planned
 
 **状态：0.1.0 开发实现，可本地构建与验证。** 已有 Gmail API、Graph、IMAP/SMTP、JMAP 适配器，HTTP MCP、OIDC、管理界面、持久草稿/发送队列与同步。真实邮箱、生产部署和 ChatGPT 安装验收尚未完成。更新日期：2026-11-04（Asia/Shanghai）。
 
+验证：69 项本地测试通过，另有实际 TLS IMAP/SMTP、HTTP MCP SDK 与桌面/移动浏览器检查；详见 [审查与测试记录](docs/review.zh-CN.md)。
+
 当前实现、边界与证据见 [实现状态](docs/implementation.zh-CN.md)、[TODO](TODO.md)、[部署与回滚](docs/deployment.zh-CN.md)。原下方内容为立项设计，实际行为以实现状态为准。
 
 ```sh
@@ -32,7 +34,7 @@ flowchart TD
     D --> G[Gmail API adapter]
     D --> M[Microsoft Graph adapter]
     D --> I[IMAP + SMTP adapter]
-    D --> J[Later: JMAP / enterprise extensions]
+    D --> J[JMAP adapter / conditional enterprise extensions]
     D --> S[Sync workers + scoped search index]
 ```
 
@@ -53,7 +55,7 @@ flowchart TD
 | [验收计划](docs/acceptance.zh-CN.md) | 真邮箱、ChatGPT、故障恢复及安全边界 |
 | [来源与证据](docs/sources.md) | 一手资料、读取限制与未验证事项 |
 
-## 近期交付顺序
+## 真实环境验收顺序
 
 1. 冻结 Gmail / Outlook 可观察功能基线，在目标 ChatGPT 账号上验证自定义 MCP、OAuth、附件与 UI 的可达性。
 2. 用受控测试邮箱验证 QQ、163、iCloud、Gmail、Outlook/Microsoft 365，以及一套企业 IMAP 服务。
@@ -62,6 +64,6 @@ flowchart TD
 
 ## License
 
-尚未选择项目许可证。公开 GitHub 仓库不等于已授予开源再分发许可。建议在写入实现代码前确认 Apache-2.0 或 MIT 等许可证；第三方组件继续遵循各自许可证。
+尚未选择项目许可证。公开 GitHub 仓库不等于已授予开源再分发许可。项目拥有者仍需选择项目许可证；第三方组件继续遵循各自许可证。
 
 本项目与 OpenAI、Google、Microsoft 及各邮箱服务商无隶属关系。

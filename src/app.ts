@@ -146,7 +146,7 @@ export async function app(
     return reply.redirect(
       oidc.buildAuthorizationUrl(settings, {
         redirect_uri: `${config.BASE_URL}/auth/callback`,
-        scope: "openid profile mail.read mail.write mail.send",
+        scope: "openid mail.read mail.write mail.send",
         code_challenge: await oidc.calculatePKCECodeChallenge(verifier),
         code_challenge_method: "S256",
         state,
@@ -278,6 +278,18 @@ export async function app(
         .send(a.content);
     },
   );
+  f.get("/api/uploads/:account/:id", async (req, reply) => {
+    const p = await principal(req),
+      i = req.params as Record<string, string>;
+    const a = await service.uploaded(p, i.account!, i.id!);
+    return reply
+      .type("application/octet-stream")
+      .header(
+        "Content-Disposition",
+        `attachment; filename*=UTF-8''${encodeURIComponent(a.name)}`,
+      )
+      .send(a.content);
+  });
   const oauth = new ProviderOAuth(service, config);
   f.post("/api/oauth/start", async (req) => {
     const p = (await session(req)).principal;
@@ -315,7 +327,7 @@ export async function app(
     return reply
       .type("text/html")
       .send(
-        `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>${escape(m.subject)}</title><link rel="stylesheet" href="/style.css"><main><h1>${escape(m.subject)}</h1><p>${escape(m.from)} · ${escape(m.date)}</p><pre>${escape(m.text)}</pre><a href="/">返回</a></main></html>`,
+        `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>${escape(m.subject)}</title><link rel="stylesheet" href="/style.css"><main><h1>${escape(m.subject)}</h1><p>${escape(m.from)} · ${escape(m.date)}</p><p>${escape((m.warnings ?? []).join(" · "))}</p><pre>${escape(m.text)}</pre><a href="/">返回</a></main></html>`,
       );
   });
   f.get("/approve/:id", async (req, reply) => {

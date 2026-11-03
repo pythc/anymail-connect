@@ -1,5 +1,5 @@
 """Local synthetic browser acceptance. Start tests/browser-server.ts with with_server.py."""
-import json, os
+import json, os, time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
@@ -15,6 +15,7 @@ with sync_playwright() as p:
     page.goto('http://localhost:4379')
     page.wait_for_load_state('networkidle')
     expect(page.get_by_role('heading', name='连接你的邮箱')).to_be_visible()
+    page.locator('#accounts').select_option(session['account'])
     expect(page.locator('#accounts')).to_have_value(session['account'])
     print('Rendered headings:', page.get_by_role('heading').all_text_contents())
     page.locator('#search input').fill('发票')
@@ -25,20 +26,56 @@ with sync_playwright() as p:
     page.locator('#draft input[name=bcc]').fill('synthetic-bcc@example.com')
     page.locator('#draft input[name=subject]').fill('浏览器测试草稿')
     page.locator('#draft textarea').fill('这是测试夹具，不会连接真实邮箱。')
+    page.locator('#draft input[name=file]').set_input_files({'name':'invoice.txt','mimeType':'text/plain','buffer':b'consented browser attachment'})
     page.locator('#draft button').click()
     expect(page.locator('#approval')).to_be_visible()
     page.screenshot(path='.artifacts/browser-desktop.png', full_page=True)
     page.locator('#approval').click()
     expect(page.get_by_role('heading', name='确认邮件发送')).to_be_visible()
     expect(page.locator('pre')).to_contain_text('synthetic-bcc@example.com')
+    expect(page.locator('main')).to_contain_text('test@example.com')
+    expect(page.locator('main')).to_contain_text('SHA-256:')
+    expect(page.get_by_role('link', name='invoice.txt')).to_be_visible()
     page.get_by_role('button', name='批准这份固定内容的发送').click()
     expect(page.get_by_role('heading', name='已批准')).to_be_visible()
     page.goto('http://localhost:4379')
+    page.wait_for_load_state('networkidle')
+    page.locator('#accounts').select_option(session['account'])
+    pending = []
+    def hold(route):
+        pending.append(route)
+    def held_request():
+        deadline = time.monotonic() + 5
+        while not pending and time.monotonic() < deadline:
+            page.wait_for_timeout(25)
+        assert pending, 'Expected delayed request was not intercepted'
+        return pending.pop()
+    page.route('**/api/call/messages_search', hold)
+    page.locator('#search button').click()
+    delayed_search = held_request()
+    page.locator('#accounts').select_option(session['second'])
+    delayed_search.continue_()
+    page.wait_for_load_state('networkidle')
+    expect(page.locator('#messages')).to_be_empty()
+    page.unroute('**/api/call/messages_search', hold)
+    page.locator('#accounts').select_option(session['account'])
+    page.locator('#drafts').click()
+    expect(page.locator('#draft-list button')).to_have_count(1)
+    page.route('**/api/call/drafts_prepare_send', hold)
+    page.locator('#draft-list button').click()
+    delayed_prepare = held_request()
+    page.locator('#accounts').select_option(session['second'])
+    expect(page.locator('#draft-list')).to_be_empty()
+    delayed_prepare.continue_()
+    page.wait_for_load_state('networkidle')
+    expect(page.locator('#approval')).to_be_hidden()
+    expect(page.locator('#draft-result')).to_be_empty()
+    page.unroute('**/api/call/drafts_prepare_send', hold)
     page.set_viewport_size({'width': 390, 'height': 844})
     page.wait_for_load_state('networkidle')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Mobile horizontal overflow'
     page.screenshot(path='.artifacts/browser-mobile.png', full_page=True)
     assert not errors, errors
-    print('PASS: synthetic mail search/read, draft/Bcc preview, trusted approval, desktop/mobile, no page errors')
+    print('PASS: synthetic mail search/read, draft/Bcc preview, sender/attachment-bound approval, stale search/draft account switch, desktop/mobile, no page errors')
     context.close()
     browser.close()

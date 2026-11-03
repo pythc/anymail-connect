@@ -1,7 +1,17 @@
-import { mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
+import { X509Certificate } from "node:crypto";
 import { execFileSync } from "node:child_process";
 mkdirSync(".test-certs", { recursive: true, mode: 0o700 });
-if (!existsSync(".test-certs/ca.crt"))
+let fresh = false;
+try {
+  fresh =
+    existsSync(".test-certs/server.key") &&
+    Date.parse(
+      new X509Certificate(readFileSync(".test-certs/ca.crt")).validTo,
+    ) >
+      Date.now() + 3600_000;
+} catch {}
+if (!fresh)
   execFileSync(
     "openssl",
     [

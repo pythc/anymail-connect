@@ -37,6 +37,11 @@ test("JMAP session, query, attachment and submission contracts", async (t) => {
             {
               id: "m",
               subject: "test",
+              to: [{ email: "test@example.com" }],
+              cc: [{ email: "cc@example.com" }],
+              replyTo: [{ email: "reply@example.com" }],
+              messageId: ["original@example.com"],
+              references: ["prior@example.com"],
               receivedAt: "2026-11-04T00:00:00Z",
               bodyValues: { text: { value: "body" } },
               keywords: {},
@@ -91,6 +96,16 @@ test("JMAP session, query, attachment and submission contracts", async (t) => {
         "attachment",
       );
       await assert.rejects(p.attachment("m", "foreign"), /NOT_FOUND/);
+    },
+  );
+  await t.test(
+    "JMAP preserves reply recipients and RFC message-id brackets",
+    async () => {
+      const m = await provider().get("m");
+      assert.deepEqual(m.cc, ["cc@example.com"]);
+      assert.deepEqual(m.replyTo, ["reply@example.com"]);
+      assert.equal(m.messageId, "<original@example.com>");
+      assert.deepEqual(m.references, ["<prior@example.com>"]);
     },
   );
   await t.test(

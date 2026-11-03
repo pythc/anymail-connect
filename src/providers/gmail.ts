@@ -10,6 +10,9 @@ import {
   type Mutation,
 } from "../domain.js";
 import { Rest, enc } from "./rest.js";
+import addressparser from "nodemailer/lib/addressparser";
+import { convert } from "html-to-text";
+import iconv from "iconv-lite";
 import MailComposer from "nodemailer/lib/mail-composer";
 export async function compose(
   from: string,
@@ -44,20 +47,48 @@ export function gmailMessage(m: any): Message {
       String(h.value),
     ]),
   ) as Record<string, string>;
+  const warnings: string[] = [];
   const p = parts(m.payload ?? {}),
     decode = (type: string) =>
       p
-        .filter((x) => x.mimeType === type && x.body?.data)
-        .map((x) => Buffer.from(x.body.data, "base64url").toString())
+        .filter((x) => !x.filename && x.mimeType === type && x.body?.data)
+        .map((x) => {
+          const value =
+            (x.headers ?? []).find(
+              (h: any) => String(h.name).toLowerCase() === "content-type",
+            )?.value ?? "";
+          const charset =
+            /charset\s*=\s*["']?([^;\s"']+)/i.exec(value)?.[1] ?? "utf-8";
+          const bytes = Buffer.from(x.body.data, "base64url");
+          if (Boolean(iconv.encodingExists(charset)))
+            return iconv.decode(bytes, charset);
+          try {
+            return new TextDecoder(charset).decode(bytes);
+          } catch {
+            warnings.push(
+              `UNSUPPORTED_CHARSET:${charset.slice(0, 80)}; UTF-8 replacement fallback`,
+            );
+            return bytes.toString("utf8");
+          }
+        })
         .join("\n");
+  const addresses = (v = "") =>
+    addressparser(v, { flatten: true })
+      .map((a) => ("address" in a ? a.address : ""))
+      .filter(Boolean);
+  const html = decode("text/html");
   return {
     id: m.id,
     subject: headers.subject ?? "",
     from: headers.from ?? "",
-    to: (headers.to ?? "").split(",").filter(Boolean),
+    to: addresses(headers.to),
+    cc: addresses(headers.cc),
+    replyTo: addresses(headers["reply-to"]),
     date: new Date(Number(m.internalDate || 0)).toISOString(),
-    text: decode("text/plain") || m.snippet || "",
-    html: decode("text/html") || undefined,
+    text:
+      decode("text/plain") ||
+      (html ? convert(html, { wordwrap: false }) : m.snippet || ""),
+    html: html || undefined,
     read: !(m.labelIds ?? []).includes("UNREAD"),
     messageId: headers["message-id"],
     references: headers.references?.match(/<[^>]+>/g) ?? [],
@@ -65,14 +96,19 @@ export function gmailMessage(m: any): Message {
     threadSource: "provider",
     labels: m.labelIds ?? [],
     headers,
-    attachments: p
-      .filter((x) => x.filename && x.body?.attachmentId)
-      .map((x) => ({
-        id: x.body.attachmentId,
-        name: x.filename,
-        type: x.mimeType,
-        size: x.body.size,
-      })),
+    ...(warnings.length ? { warnings } : {}),
+    attachments: p.flatMap((x, index) =>
+      x.filename && (x.body?.attachmentId || x.body?.data !== undefined)
+        ? [
+            {
+              id: x.body.attachmentId || `part:${index}`,
+              name: x.filename,
+              type: x.mimeType,
+              size: x.body.size,
+            },
+          ]
+        : [],
+    ),
   };
 }
 export class GmailProvider implements MailProvider {
@@ -114,21 +150,43 @@ export class GmailProvider implements MailProvider {
     return { items, cursor: r.nextPageToken, coverage: "provider-search" };
   }
   async get(id: string) {
-    return gmailMessage(
-      await this.api.call(`/users/me/messages/${enc(id)}?format=full`),
-    );
+    const m = await this.api.call(`/users/me/messages/${enc(id)}?format=full`);
+    // Gmail can store a large body part separately, even when it is not a file.
+    for (const p of parts(m.payload ?? {})) {
+      if (
+        !p.filename &&
+        ["text/plain", "text/html"].includes(p.mimeType) &&
+        p.body?.attachmentId &&
+        !p.body.data
+      ) {
+        const body = await this.api.call(
+          `/users/me/messages/${enc(id)}/attachments/${enc(p.body.attachmentId)}`,
+        );
+        p.body.data = body.data;
+      }
+    }
+    return gmailMessage(m);
   }
   async attachment(messageId: string, attachmentId: string) {
-    const m = await this.get(messageId),
-      a = m.attachments.find((x) => x.id === attachmentId);
-    if (!a) throw new MailError("NOT_FOUND", 404);
-    const r = await this.api.call(
-      `/users/me/messages/${enc(messageId)}/attachments/${enc(attachmentId)}`,
+    const m = await this.api.call(
+      `/users/me/messages/${enc(messageId)}?format=full`,
     );
+    const part = parts(m.payload ?? {}).find(
+      (x, index) =>
+        x.filename &&
+        (x.body?.attachmentId || `part:${index}`) === attachmentId,
+    );
+    if (!part || (!part.body?.attachmentId && part.body?.data === undefined))
+      throw new MailError("NOT_FOUND", 404);
+    const body = part.body.attachmentId
+      ? await this.api.call(
+          `/users/me/messages/${enc(messageId)}/attachments/${enc(part.body.attachmentId)}`,
+        )
+      : part.body;
     return {
-      content: Buffer.from(r.data, "base64url"),
-      type: a.type,
-      name: a.name,
+      content: Buffer.from(body.data, "base64url"),
+      type: part.mimeType,
+      name: part.filename,
     };
   }
   async folders() {

@@ -95,7 +95,7 @@ export class ImapProvider implements MailProvider {
     folder: string,
     validity: string,
   ): Promise<Message> {
-    if ((f.size ?? MAX_MESSAGE + 1) > MAX_MESSAGE)
+    if (f.source && (f.size ?? f.source.length) > MAX_MESSAGE)
       throw new MailError("MESSAGE_TOO_LARGE", 413);
     const p = f.source ? await simpleParser(f.source) : undefined;
     const addr = (x: any) =>

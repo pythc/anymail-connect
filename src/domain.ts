@@ -157,6 +157,7 @@ export type Message = {
   labels?: string[];
   attachments: Attachment[];
   headers?: Record<string, string>;
+  warnings?: string[];
 };
 export const searchSchema = z
   .object({

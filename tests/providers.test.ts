@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPair, exportJWK, createLocalJWKSet, SignJWT } from "jose";
-import { GmailProvider } from "../src/providers/gmail.js";
+import iconv from "iconv-lite";
+import { GmailProvider, gmailMessage } from "../src/providers/gmail.js";
 import { GraphProvider } from "../src/providers/graph.js";
 import { Rest, cursorEncode } from "../src/providers/rest.js";
 import { draftSchema } from "../src/domain.js";
@@ -15,7 +16,7 @@ test("provider HTTP contracts and network boundaries", async (t) => {
     const r = respond(url, options);
     return {
       status: r.status || 200,
-      body: Buffer.from(JSON.stringify(r.body || r)),
+      body: Buffer.from(JSON.stringify(r.status ? (r.body ?? {}) : r)),
       headers: r.headers || {},
     };
   };
@@ -148,6 +149,124 @@ test("provider HTTP contracts and network boundaries", async (t) => {
       const mime = Buffer.from(req.options.body, "base64").toString();
       assert.match(mime, /In-Reply-To: <original@example.com>/);
       assert.match(mime, /Bcc: hidden@example.com/);
+    },
+  );
+  await t.test(
+    "Gmail maps quoted addresses, Cc, Reply-To and declared non-UTF8 charset",
+    () => {
+      const m = gmailMessage({
+        id: "m",
+        payload: {
+          mimeType: "text/plain",
+          headers: [
+            {
+              name: "To",
+              value: '"Doe, Jane" <jane@example.com>, test@example.com',
+            },
+            { name: "Cc", value: '"Colleague, One" <cc@example.com>' },
+            { name: "Reply-To", value: "replies@example.com" },
+            { name: "Content-Type", value: 'text/plain; charset="gbk"' },
+          ],
+          body: { data: iconv.encode("中文发票", "gbk").toString("base64url") },
+        },
+      });
+      assert.deepEqual(m.to, ["jane@example.com", "test@example.com"]);
+      assert.deepEqual(m.cc, ["cc@example.com"]);
+      assert.deepEqual(m.replyTo, ["replies@example.com"]);
+      assert.equal(m.text, "中文发票");
+    },
+  );
+  await t.test(
+    "Gmail HTML-only and separately stored body return full text; inline files stay downloadable",
+    async () => {
+      const html = "<p>HTML full body beyond snippet</p>";
+      respond = (url) =>
+        url.includes("/attachments/body-part")
+          ? { data: Buffer.from(html).toString("base64url") }
+          : {
+              id: "mixed",
+              snippet: "short",
+              payload: {
+                mimeType: "multipart/mixed",
+                parts: [
+                  {
+                    partId: "0",
+                    mimeType: "text/html",
+                    body: { attachmentId: "body-part", size: html.length },
+                  },
+                  {
+                    partId: "1",
+                    filename: "note.txt",
+                    mimeType: "text/plain",
+                    body: {
+                      data: Buffer.from("file only").toString("base64url"),
+                      size: 9,
+                    },
+                  },
+                ],
+              },
+            };
+      const m = await gmail.get("mixed");
+      assert.equal(m.text, "HTML full body beyond snippet");
+      assert.equal(m.attachments.length, 1);
+      const a = await gmail.attachment("mixed", m.attachments[0]!.id);
+      assert.equal(a.content.toString(), "file only");
+      assert.equal(a.name, "note.txt");
+      await assert.rejects(gmail.attachment("mixed", "foreign"), /NOT_FOUND/);
+    },
+  );
+  await t.test(
+    "one unknown Gmail charset retains the search page with an explicit warning",
+    async () => {
+      respond = (url) =>
+        url.includes("/messages?")
+          ? { messages: [{ id: "unsupported" }, { id: "normal" }] }
+          : {
+              id: url.includes("unsupported") ? "unsupported" : "normal",
+              payload: {
+                mimeType: "text/plain",
+                headers: [
+                  {
+                    name: "Content-Type",
+                    value: `text/plain; charset=${url.includes("unsupported") ? "x-unknown-label" : "utf-8"}`,
+                  },
+                ],
+                body: {
+                  data: Buffer.from("visible mail").toString("base64url"),
+                },
+              },
+            };
+      const page = await gmail.search({ query: "", limit: 20 });
+      assert.equal(page.items.length, 2);
+      assert.match(page.items[0]!.warnings![0]!, /UNSUPPORTED_CHARSET/);
+      assert.equal(page.items[1]!.text, "visible mail");
+    },
+  );
+  await t.test(
+    "Graph requests internet headers and returns full HTML text beyond preview",
+    async () => {
+      respond = () => ({
+        id: "m",
+        bodyPreview: "short preview",
+        body: {
+          contentType: "html",
+          content: "<p>Full body</p><p>tail after preview &amp; text</p>",
+        },
+        internetMessageHeaders: [
+          { name: "List-Unsubscribe", value: "<mailto:leave@example.com>" },
+        ],
+      });
+      const m = await graph.get("m");
+      assert.ok(
+        new URL(requests.at(-1)!.url).searchParams
+          .get("$select")
+          ?.includes("internetMessageHeaders"),
+      );
+      assert.match(m.text, /tail after preview & text/);
+      assert.equal(
+        m.headers?.["list-unsubscribe"],
+        "<mailto:leave@example.com>",
+      );
     },
   );
   await t.test(

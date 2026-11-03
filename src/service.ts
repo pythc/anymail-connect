@@ -28,6 +28,8 @@ export type Operation = {
   client: string;
   digest: string;
   content: DraftContent;
+  sender: string;
+  attachments: AttachmentManifest[];
   state:
     | "pending"
     | "approved"
@@ -38,10 +40,57 @@ export type Operation = {
     | "failed";
   expiresAt: string;
   dueAt: string;
+  schedule: string;
   submittedAt?: string;
   receipt?: unknown;
   failure?: string;
 };
+export type AttachmentManifest = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  sha256: string;
+};
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => [k, canonical(v)]),
+    );
+  return value;
+}
+function intentDigest(
+  op: Pick<
+    Operation,
+    "accountId" | "sender" | "attachments" | "draftId" | "revision" | "content"
+  > & { schedule: string },
+) {
+  const {
+    accountId,
+    sender,
+    attachments,
+    draftId,
+    revision,
+    content,
+    schedule,
+  } = op;
+  return hash(
+    JSON.stringify(
+      canonical({
+        accountId,
+        sender,
+        attachments,
+        draftId,
+        revision,
+        content,
+        schedule,
+      }),
+    ),
+  );
+}
 type Blob = {
   id: string;
   name: string;
@@ -252,10 +301,65 @@ export class MailService {
       type,
       size: bytes.length,
       content: bytes.toString("base64"),
-      sha256: hash(bytes.toString("base64")),
+      sha256: hash(bytes),
     };
     await this.store.put(p, accountId, "blob", blob.id, blob);
     return { id: blob.id, name, type, size: blob.size, sha256: blob.sha256 };
+  }
+  async uploaded(p: Principal, accountId: string, blobId: string) {
+    await this.account(p, accountId);
+    const b = await this.store.get<Blob>(p, accountId, "blob", blobId);
+    return {
+      content: Buffer.from(b.content, "base64"),
+      name: b.name,
+      type: b.type,
+    };
+  }
+  private async manifest(
+    p: Principal,
+    accountId: string,
+    content: DraftContent,
+    tx: import("./db.js").Queryable = this.store.db,
+  ): Promise<AttachmentManifest[]> {
+    const items: AttachmentManifest[] = [];
+    for (const id of content.attachmentIds) {
+      const b = await this.store.get<Blob>(p, accountId, "blob", id, tx);
+      // Compute the identity of the bytes that will actually be submitted.
+      items.push({
+        id,
+        name: b.name,
+        type: b.type,
+        size: Buffer.from(b.content, "base64").length,
+        sha256: hash(Buffer.from(b.content, "base64")),
+      });
+    }
+    return items;
+  }
+  private async checkIntent(
+    p: Principal,
+    op: Operation,
+    a: Account,
+    d: Draft,
+    tx: import("./db.js").Queryable,
+  ) {
+    if (
+      !op.sender ||
+      !op.schedule ||
+      (op.schedule !== "immediate" && op.schedule !== op.dueAt) ||
+      !Array.isArray(op.attachments) ||
+      op.sender !== a.email ||
+      op.accountId !== d.accountId ||
+      op.revision !== d.revision
+    )
+      throw new MailError("APPROVAL_BINDING_CHANGED", 409);
+    const current = {
+      ...op,
+      sender: a.email,
+      content: d.content,
+      attachments: await this.manifest(p, a.id, d.content, tx),
+    };
+    if (intentDigest(op) !== op.digest || intentDigest(current) !== op.digest)
+      throw new MailError("APPROVAL_BINDING_CHANGED", 409);
   }
   private async attachments(
     p: Principal,
@@ -332,6 +436,7 @@ export class MailService {
     await this.account(p, accountId, "mail.write");
     const content = await this.validateContent(p, accountId, raw);
     return this.store.db.transaction(async (tx) => {
+      await this.store.account(p, accountId, tx, true);
       const d = await this.store.get<Draft>(
         p,
         accountId,
@@ -356,6 +461,7 @@ export class MailService {
     text: string,
     mode: "reply" | "reply_all" | "forward",
     to: string[] = [],
+    sourceAttachmentIds: string[] = [],
   ) {
     const a = await this.account(p, accountId, "mail.write"),
       m = await this.get(p, accountId, messageId);
@@ -377,13 +483,45 @@ export class MailService {
     const subject = /^(re|fwd?):/i.test(m.subject)
       ? m.subject
       : `${mode === "forward" ? "Fwd" : "Re"}: ${m.subject}`;
+    const selected = [...new Set(sourceAttachmentIds)];
+    if (selected.length > 20) throw new MailError("ATTACHMENTS_TOO_LARGE", 413);
+    if (selected.some((id) => !m.attachments.some((a) => a.id === id)))
+      throw new MailError("NOT_FOUND", 404);
+    // Fetch and validate all selected bytes before writing any attachment copy.
+    const copies = [];
+    let total = 0;
+    for (const attachmentId of selected) {
+      const source = await this.attachment(
+        p,
+        accountId,
+        messageId,
+        attachmentId,
+      );
+      total += source.content.length;
+      if (source.content.length > 5 * 1024 * 1024 || total > 8 * 1024 * 1024)
+        throw new MailError("ATTACHMENTS_TOO_LARGE", 413);
+      copies.push(source);
+    }
+    const attachmentIds = [];
+    for (const source of copies)
+      attachmentIds.push(
+        (
+          await this.upload(
+            p,
+            accountId,
+            source.name,
+            source.type,
+            source.content,
+          )
+        ).id,
+      );
     return this.createDraft(p, accountId, {
       to: unique(targets),
       cc: unique(cc).filter((x) => !unique(targets).includes(x)),
       bcc: [],
       subject,
       text: `${text}\n\n--- ${m.date} ${m.from} ---\n${m.text}`,
-      attachmentIds: [],
+      attachmentIds,
       references:
         mode === "forward"
           ? []
@@ -402,7 +540,7 @@ export class MailService {
     dedupe: string,
     dueAt?: string,
   ) {
-    await this.account(p, accountId, "mail.send");
+    const account = await this.account(p, accountId, "mail.send");
     if (!dedupe || dedupe.length > 200)
       throw new MailError("INVALID_IDEMPOTENCY_KEY");
     const due = dueAt ? Date.parse(dueAt) : Date.now();
@@ -412,14 +550,16 @@ export class MailService {
     if (d.revision !== revision) throw new MailError("REVISION_CONFLICT", 409);
     if (![...d.content.to, ...d.content.cc, ...d.content.bcc].length)
       throw new MailError("RECIPIENT_REQUIRED");
-    const digest = hash(
-      JSON.stringify({
-        draftId,
-        revision,
-        content: d.content,
-        dueAt: dueAt || "immediate",
-      }),
-    );
+    const binding = {
+      accountId,
+      sender: account.email,
+      attachments: await this.manifest(p, accountId, d.content),
+      draftId,
+      revision,
+      content: d.content,
+      schedule: dueAt ? new Date(due).toISOString() : "immediate",
+    };
+    const digest = intentDigest(binding);
     const op: Operation = {
       id: id(),
       accountId,
@@ -428,6 +568,9 @@ export class MailService {
       client: p.client,
       digest,
       content: d.content,
+      schedule: binding.schedule,
+      sender: binding.sender,
+      attachments: binding.attachments,
       state: "pending",
       dueAt: new Date(due).toISOString(),
       expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
@@ -488,6 +631,8 @@ export class MailService {
   async approve(p: Principal, operationId: string, digest: string) {
     requireScope(p, "mail.send");
     return this.store.db.transaction(async (tx) => {
+      const initial = await this.operation(p, operationId, tx);
+      const a = await this.store.account(p, initial.accountId, tx, true);
       const op = await this.operation(p, operationId, tx, true);
       if (
         op.state !== "pending" ||
@@ -495,12 +640,12 @@ export class MailService {
         Date.parse(op.expiresAt) < Date.now()
       )
         throw new MailError("APPROVAL_INVALID", 409);
-      const a = await this.store.account(p, op.accountId, tx, true);
       if (!a.writable || !a.sendEnabled)
         throw new MailError("SEND_DISABLED", 403);
       const d = await this.store.get<Draft>(p, a.id, "draft", op.draftId, tx);
       if (d.revision !== op.revision)
         throw new MailError("REVISION_CONFLICT", 409);
+      await this.checkIntent(p, op, a, d, tx);
       op.state = "approved";
       await this.saveOperation(p, op, tx);
       await this.store.audit(p, a.id, "send.approve", op.id, "approved", tx);
@@ -521,6 +666,8 @@ export class MailService {
   async submit(p: Principal, operationId: string, worker = false) {
     requireScope(p, "mail.send");
     const op = await this.store.db.transaction(async (tx) => {
+      const initial = await this.operation(p, operationId, tx);
+      const a = await this.store.account(p, initial.accountId, tx, true);
       const o = await this.operation(p, operationId, tx, true);
       if (!worker && o.client !== p.client)
         throw new MailError("CLIENT_MISMATCH", 403);
@@ -538,7 +685,6 @@ export class MailService {
         throw new MailError("USER_APPROVAL_REQUIRED", 403);
       }
       if (Date.parse(o.dueAt) > Date.now()) return o;
-      const a = await this.store.account(p, o.accountId, tx, true);
       if (!a.writable || !a.sendEnabled)
         throw new MailError("SEND_DISABLED", 403);
       const d = await this.store.get<Draft>(
@@ -552,6 +698,15 @@ export class MailService {
       if (d.revision !== o.revision) {
         o.state = "failed";
         o.failure = "REVISION_CONFLICT";
+        await this.saveOperation(p, o, tx);
+        return o;
+      }
+      try {
+        await this.checkIntent(p, o, a, d, tx);
+      } catch (e) {
+        if (!(e instanceof MailError)) throw e;
+        o.state = "failed";
+        o.failure = e.code;
         await this.saveOperation(p, o, tx);
         return o;
       }

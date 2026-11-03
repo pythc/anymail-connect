@@ -48,6 +48,13 @@ export class Store {
     data: unknown,
     tx: Queryable = this.db,
   ) {
+    if (tx === this.db) {
+      return this.db.transaction(async (locked) => {
+        await this.account(p, accountId, locked, true);
+        await this.put(p, accountId, kind, id, data, locked);
+      });
+    }
+    // Explicit transaction callers hold the account lock before document locks.
     await tx.query(
       "INSERT INTO documents VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO UPDATE SET data=EXCLUDED.data WHERE documents.tenant=EXCLUDED.tenant AND documents.owner=EXCLUDED.owner AND documents.account_id=EXCLUDED.account_id AND documents.kind=EXCLUDED.kind",
       [id, p.tenant, p.subject, accountId, kind, JSON.stringify(data)],

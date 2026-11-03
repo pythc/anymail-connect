@@ -19,13 +19,16 @@
     "pretest": "node scripts/testcert.mjs",
     "format": "prettier --write src tests scripts",
     "format:check": "prettier --check src tests scripts",
-    "test:browser": "python3 tests/browser.py"
+    "test:browser": "node scripts/browser-tests.mjs browser",
+    "test:oidc": "node scripts/browser-tests.mjs oidc"
   },
   "dependencies": {
     "@fastify/cookie": "11.1.5",
     "@fastify/rate-limit": "11.2.2",
     "@modelcontextprotocol/sdk": "1.32.2",
     "fastify": "5.12.8",
+    "html-to-text": "10.0.1",
+    "iconv-lite": "0.7.3",
     "imapflow": "2.10.0",
     "ipaddr.js": "2.5.0",
     "jose": "6.2.15",
@@ -41,6 +44,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.15",
+    "@types/html-to-text": "9.0.4",
     "@types/mailparser": "3.9.0",
     "@types/node": "26.6.6",
     "@types/pg": "8.23.1",

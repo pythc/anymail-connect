@@ -8,6 +8,16 @@ import { MailError } from "../src/domain.js";
 const f = await fixture(),
   base = "http://localhost:4379";
 f.service.baseUrl = base;
+const second = await f.service.connect(
+  alice,
+  {
+    provider: "gmail",
+    email: "test@example.com",
+    oauth: { accessToken: "lab-only-second" },
+  },
+  true,
+  true,
+);
 const c = config({
   DATABASE_URL: "test",
   ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
@@ -32,7 +42,7 @@ await f.store.setSession(
 mkdirSync(".artifacts", { recursive: true, mode: 0o700 });
 writeFileSync(
   ".artifacts/browser-session.json",
-  JSON.stringify({ sid, account: f.account.id }),
+  JSON.stringify({ sid, account: f.account.id, second: second.id }),
   { mode: 0o600 },
 );
 await server.listen({ port: 4379, host: "127.0.0.1" });
