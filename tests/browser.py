@@ -83,7 +83,11 @@ with sync_playwright() as p:
     expect(page.locator('#jmap input[name=token]')).to_have_value('')
     page.set_viewport_size({'width': 390, 'height': 844})
     page.wait_for_load_state('networkidle')
+    expect(page.locator('#policy')).to_contain_text('缓存/索引')
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Mobile horizontal overflow'
+    page.evaluate("document.documentElement.style.fontFamily='monospace'")
+    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Mobile overflow with wider fallback font'
+    page.evaluate("document.documentElement.style.fontFamily=''")
     page.screenshot(path='.artifacts/browser-mobile.png', full_page=True)
     page.set_viewport_size({'width': 1280, 'height': 900})
     page.locator('#accounts').select_option(session['account'])
