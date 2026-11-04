@@ -207,7 +207,7 @@ export function tools(s: MailService): Tool[] {
   );
   add(
     "drafts_create",
-    "Save an application draft. Upload attachments in the authenticated web UI first; this does not send.",
+    "Save an application draft. Upload attachments through the authenticated POST /api/upload endpoint first; this does not send.",
     z.object({ account_id: account, content: draftSchema }).strict(),
     false,
     (p, i) => s.createDraft(p, i.account_id, i.content),
