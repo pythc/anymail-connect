@@ -216,6 +216,78 @@ test("provider HTTP contracts and network boundaries", async (t) => {
     },
   );
   await t.test(
+    "Gmail attachment references survive changing download IDs and MIME traversal order",
+    async () => {
+      let reads = 0;
+      respond = (url) => {
+        if (url.includes("/attachments/"))
+          return {
+            data: Buffer.from("selected attachment").toString("base64url"),
+          };
+        reads++;
+        const file = {
+          partId: "1.2",
+          filename: "same-name.txt",
+          mimeType: "text/plain",
+          body: { attachmentId: `download-${reads}`, size: 19 },
+        };
+        return {
+          id: "rotating",
+          payload: {
+            partId: "",
+            mimeType: "multipart/mixed",
+            parts: [
+              ...(reads > 1
+                ? [{ partId: "0", mimeType: "text/plain", body: {} }]
+                : []),
+              { partId: "1", mimeType: "multipart/mixed", parts: [file] },
+            ],
+          },
+        };
+      };
+      const first = await gmail.get("rotating");
+      const second = await gmail.get("rotating");
+      assert.equal(first.attachments[0]!.id, "part-id:1.2");
+      assert.equal(second.attachments[0]!.id, first.attachments[0]!.id);
+      const file = await gmail.attachment("rotating", first.attachments[0]!.id);
+      assert.equal(file.content.toString(), "selected attachment");
+      assert.ok(requests.at(-1)!.url.endsWith("/attachments/download-3"));
+      await assert.rejects(
+        gmail.attachment("rotating", "part-id:foreign"),
+        /NOT_FOUND/,
+      );
+    },
+  );
+  await t.test(
+    "Gmail empty root part IDs and legacy inline references remain readable",
+    async () => {
+      respond = () => ({
+        id: "root-file",
+        payload: {
+          partId: "",
+          filename: "root.txt",
+          mimeType: "text/plain",
+          body: {
+            data: Buffer.from("root file").toString("base64url"),
+            size: 9,
+          },
+        },
+      });
+      const message = await gmail.get("root-file");
+      assert.equal(message.attachments[0]!.id, "part-id:");
+      assert.equal(
+        (
+          await gmail.attachment("root-file", message.attachments[0]!.id)
+        ).content.toString(),
+        "root file",
+      );
+      assert.equal(
+        (await gmail.attachment("root-file", "part:0")).content.toString(),
+        "root file",
+      );
+    },
+  );
+  await t.test(
     "one unknown Gmail charset retains the search page with an explicit warning",
     async () => {
       respond = (url) =>

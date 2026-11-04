@@ -103,7 +103,11 @@ export function gmailMessage(m: any): Message {
       x.filename && (x.body?.attachmentId || x.body?.data !== undefined)
         ? [
             {
-              id: x.body.attachmentId || `part:${index}`,
+              // Download IDs can change between reads; MIME partId is immutable.
+              id:
+                typeof x.partId === "string"
+                  ? `part-id:${x.partId}`
+                  : x.body.attachmentId || `part:${index}`,
               name: x.filename,
               type: x.mimeType,
               size: x.body.size,
@@ -193,7 +197,10 @@ export class GmailProvider implements MailProvider {
     const part = parts(m.payload ?? {}).find(
       (x, index) =>
         x.filename &&
-        (x.body?.attachmentId || `part:${index}`) === attachmentId,
+        (attachmentId.startsWith("part-id:")
+          ? typeof x.partId === "string" &&
+            `part-id:${x.partId}` === attachmentId
+          : (x.body?.attachmentId || `part:${index}`) === attachmentId),
     );
     if (!part || (!part.body?.attachmentId && part.body?.data === undefined))
       throw new MailError("NOT_FOUND", 404);
