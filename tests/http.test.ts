@@ -155,6 +155,33 @@ test("HTTP identity, CSRF, private files and actual MCP transport", async (t) =>
         });
         assert.ok(JSON.stringify(r).includes(f.account.id));
         assert.ok(!JSON.stringify(r).includes("lab-access-token"));
+        const imported = list.tools.find(
+          (x) => x.name === "attachments_import_file",
+        )!;
+        assert.deepEqual(imported._meta?.["openai/fileParams"], ["file"]);
+        const exported = await client.callTool({
+          name: "attachments_export",
+          arguments: {
+            account_id: f.account.id,
+            message_id: "m1",
+            attachment_id: "part:/ ü",
+          },
+        });
+        const link = (exported.content as any[]).find(
+          (x: any) => x.type === "resource_link",
+        ) as any;
+        assert.ok(link?.uri.startsWith("anymail://attachment/"));
+        const file = await client.readResource({ uri: link.uri });
+        assert.equal(
+          Buffer.from((file.contents[0] as any).blob, "base64").toString(),
+          "test",
+        );
+        const ui = await client.readResource({ uri: "ui://anymail/preview" });
+        assert.match(
+          (ui.contents[0] as any).text,
+          /ui\/notifications\/initialized/,
+        );
+        assert.match((ui.contents[0] as any).text, /收件人/);
       } finally {
         await client.close();
       }

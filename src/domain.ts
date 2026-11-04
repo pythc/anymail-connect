@@ -15,7 +15,18 @@ export type Principal = {
   client: string;
   scopes: string[];
 };
-export type ProviderName = "gmail" | "graph" | "imap" | "jmap";
+export type ProviderName = "gmail" | "graph" | "imap" | "jmap" | "ews";
+const carddavSchema = z
+  .object({
+    url: z.string().url(),
+    username: z
+      .string()
+      .min(1)
+      .max(300)
+      .refine((s) => !s.includes(":")),
+    password: z.string().min(1),
+  })
+  .strict();
 export const endpointSchema = z
   .object({
     host: z.string().min(1).max(253),
@@ -40,6 +51,7 @@ export const connectionSchema = z.discriminatedUnion("provider", [
   z
     .object({
       provider: z.literal("imap"),
+      carddav: carddavSchema.optional(),
       email: z.string().email(),
       username: z.string().min(1),
       password: z.string().min(1),
@@ -52,6 +64,7 @@ export const connectionSchema = z.discriminatedUnion("provider", [
   z
     .object({
       provider: z.literal("gmail"),
+      carddav: carddavSchema.optional(),
       email: z.string().email(),
       oauth: oauthCredentialSchema,
     })
@@ -59,6 +72,7 @@ export const connectionSchema = z.discriminatedUnion("provider", [
   z
     .object({
       provider: z.literal("graph"),
+      carddav: carddavSchema.optional(),
       cloud: z.enum(["global", "usgov", "usgovdod", "china"]).default("global"),
       email: z.string().email(),
       mailbox: z.string().email().optional(),
@@ -68,9 +82,33 @@ export const connectionSchema = z.discriminatedUnion("provider", [
   z
     .object({
       provider: z.literal("jmap"),
+      carddav: carddavSchema.optional(),
       email: z.string().email(),
       sessionUrl: z.string().url(),
       token: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      provider: z.literal("ews"),
+      email: z.string().email(),
+      url: z.string().url(),
+      auth: z.discriminatedUnion("type", [
+        z
+          .object({
+            type: z.literal("basic"),
+            username: z
+              .string()
+              .min(1)
+              .refine((s) => !s.includes(":")),
+            password: z.string().min(1),
+          })
+          .strict(),
+        z
+          .object({ type: z.literal("bearer"), token: z.string().min(1) })
+          .strict(),
+      ]),
+      carddav: carddavSchema.optional(),
     })
     .strict(),
 ]);
@@ -232,6 +270,17 @@ export type SyncPage = {
   reset?: boolean;
 };
 export interface MailProvider {
+  nativeDraft?(
+    id: string,
+  ): Promise<{ version: string; content: DraftContent; message: Message }>;
+  updateNativeDraft?(
+    id: string,
+    version: string,
+    content: DraftContent,
+    attachments: OutgoingAttachment[],
+    replaceAttachments?: boolean,
+    authorize?: () => Promise<void>,
+  ): Promise<void>;
   capabilities: Capabilities;
   verify(): Promise<{ email: string }>;
   search(input: Search): Promise<Page<Message>>;

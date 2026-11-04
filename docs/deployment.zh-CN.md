@@ -1,5 +1,7 @@
 # 自托管、身份与运维
 
+当前 0.3 部署还须遵循 [EWS/共享权限/introspection/保留/密钥轮换与 schema v3 步骤](operations-0.3.zh-CN.md)。下文 0.2 的 schema v2 段落是历史版本门槛；当前库为 v3，不可据此回退至旧程序。
+
 ## 本地验证
 
 需要 Node.js 24+、npm、OpenSSL；容器部署另需 Docker。所有默认测试均为合成资料，不访问真实邮箱。

@@ -52,7 +52,7 @@ export async function migrate(db: Database) {
     const v = await tx.query<{ version: number }>(
       "SELECT version FROM schema_version",
     );
-    if (v.rows.some((r) => r.version > 2))
+    if (v.rows.some((r) => r.version > 3))
       throw new Error(
         "Database is newer than this executable; refusing unsafe rollback",
       );
@@ -64,5 +64,12 @@ export async function migrate(db: Database) {
     CREATE INDEX IF NOT EXISTS change_requests_due ON change_requests(retry_at,id);
     CREATE INDEX IF NOT EXISTS documents_push_identity ON documents((data->>'providerId')) WHERE kind='push';
     INSERT INTO schema_version VALUES(2) ON CONFLICT DO NOTHING;`);
+    await tx.query(`CREATE TABLE IF NOT EXISTS account_grants (
+      account_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      tenant text NOT NULL, subject text NOT NULL, scopes jsonb NOT NULL,
+      expires_at timestamptz NOT NULL, PRIMARY KEY(account_id,subject)
+    );
+    CREATE INDEX IF NOT EXISTS account_grants_recipient ON account_grants(tenant,subject);
+    INSERT INTO schema_version VALUES(3) ON CONFLICT DO NOTHING;`);
   });
 }

@@ -8,6 +8,7 @@ import {
   type DraftContent,
   type OutgoingAttachment,
   type Mutation,
+  draftSchema,
 } from "../domain.js";
 import { convert } from "html-to-text";
 import { Rest, enc, cursorEncode, cursorDecode, odata } from "./rest.js";
@@ -420,5 +421,85 @@ export class GraphProvider implements MailProvider {
       scope: `graph:folder:${folder}`,
       reset: !checkpoint,
     };
+  }
+  async nativeDraft(id: string) {
+    const r = await this.api.call(
+      this.root +
+        `/messages/${enc(id)}?$select=id,isDraft,subject,body,toRecipients,ccRecipients,bccRecipients,changeKey,internetMessageHeaders&$expand=attachments($select=id,name,contentType,size)`,
+    );
+    if (r.isDraft !== true) throw new MailError("NOT_A_DRAFT", 409);
+    const message = graphMessage(r);
+    return {
+      version: String(r["@odata.etag"] ?? r.changeKey ?? ""),
+      message,
+      content: draftSchema.parse({
+        to: message.to,
+        cc: message.cc ?? [],
+        bcc: (r.bccRecipients ?? []).map((x: any) => x.emailAddress.address),
+        subject: message.subject,
+        text: message.text,
+        ...(message.html ? { html: message.html } : {}),
+        references: message.references ?? [],
+        inReplyTo: message.headers?.["in-reply-to"],
+      }),
+    };
+  }
+  async updateNativeDraft(
+    id: string,
+    version: string,
+    content: DraftContent,
+    attachments: OutgoingAttachment[],
+    replaceAttachments = false,
+    authorize?: () => Promise<void>,
+  ) {
+    await authorize?.();
+    if (
+      replaceAttachments &&
+      attachments.some((a) => a.content.length >= 3_000_000)
+    )
+      throw new MailError("NATIVE_ATTACHMENT_REQUIRES_UPLOAD_SESSION", 422);
+    const current = await this.nativeDraft(id);
+    if (!version || current.version !== version)
+      throw new MailError("REVISION_CONFLICT", 409);
+    if (
+      content.inReplyTo !== current.content.inReplyTo ||
+      JSON.stringify(content.references) !==
+        JSON.stringify(current.content.references)
+    )
+      throw new MailError("NATIVE_HEADER_CHANGE_UNSUPPORTED", 422);
+    const recipients = (a: string[]) =>
+      a.map((address) => ({ emailAddress: { address } }));
+    await authorize?.();
+    await this.api.call(
+      this.root + `/messages/${enc(id)}`,
+      "PATCH",
+      {
+        subject: content.subject,
+        body: {
+          contentType: content.html ? "HTML" : "Text",
+          content: content.html ?? content.text,
+        },
+        toRecipients: recipients(content.to),
+        ccRecipients: recipients(content.cc),
+        bccRecipients: recipients(content.bcc),
+      },
+      { "If-Match": version },
+    );
+    if (replaceAttachments) {
+      const path = this.root + `/messages/${enc(id)}/attachments`;
+      for (const a of current.message.attachments) {
+        await authorize?.();
+        await this.api.call(path + "/" + enc(a.id), "DELETE");
+      }
+      for (const a of attachments) {
+        await authorize?.();
+        await this.api.call(path, "POST", {
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: a.filename,
+          contentType: a.contentType,
+          contentBytes: a.content.toString("base64"),
+        });
+      }
+    }
   }
 }

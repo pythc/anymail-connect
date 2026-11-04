@@ -4,11 +4,15 @@ import { MailError, type Principal } from "./domain.js";
 import type { Config } from "./config.js";
 export type Verified = { principal: Principal; expiresAt: number };
 export type Verify = (token: string) => Promise<Verified>;
+export type InspectToken = (
+  token: string,
+) => Promise<{ active: boolean; sub?: string; scope?: string; exp?: number }>;
 export function verifier(
   issuer: string,
   audience: string,
   clientIds: string[],
   key: JWTVerifyGetKey,
+  inspect?: InspectToken,
 ): Verify {
   return async (token) => {
     try {
@@ -27,17 +31,46 @@ export function verifier(
         !clientIds.includes(client)
       )
         throw new Error("identity");
+      let checked: Awaited<ReturnType<InspectToken>> | undefined;
+      if (inspect) {
+        try {
+          checked = await inspect(token);
+        } catch {
+          throw new MailError("AUTH_SERVICE_UNAVAILABLE", 503);
+        }
+      }
+      if (
+        checked &&
+        (!checked.active ||
+          (checked.sub && checked.sub !== payload.sub) ||
+          (checked.exp !== undefined &&
+            (!Number.isFinite(checked.exp) ||
+              checked.exp * 1000 <= Date.now())))
+      )
+        throw Error("inactive");
       return {
         principal: {
           tenant,
           subject: payload.sub!,
           client,
           scopes:
-            typeof payload.scope === "string" ? payload.scope.split(" ") : [],
+            typeof payload.scope === "string"
+              ? payload.scope
+                  .split(" ")
+                  .filter(
+                    (s) =>
+                      checked?.scope === undefined ||
+                      checked.scope.split(" ").includes(s),
+                  )
+              : [],
         },
-        expiresAt: payload.exp! * 1000,
+        expiresAt: Math.min(
+          payload.exp! * 1000,
+          checked?.exp !== undefined ? checked.exp * 1000 : Infinity,
+        ),
       };
-    } catch {
+    } catch (e) {
+      if (e instanceof MailError) throw e;
       throw new MailError("AUTH_REQUIRED", 401);
     }
   };
@@ -54,6 +87,13 @@ export async function authentication(c: Config) {
   );
   const metadata = settings.serverMetadata();
   if (
+    c.OIDC_INTROSPECTION === "true" &&
+    (!metadata.introspection_endpoint ||
+      new URL(metadata.introspection_endpoint).origin !==
+        new URL(c.OIDC_ISSUER).origin)
+  )
+    throw Error("Introspection must use configured issuer origin");
+  if (
     !metadata.jwks_uri ||
     new URL(metadata.jwks_uri).origin !== new URL(c.OIDC_ISSUER).origin
   )
@@ -63,6 +103,9 @@ export async function authentication(c: Config) {
     c.OIDC_AUDIENCE,
     c.ALLOWED_CLIENT_IDS.split(",").map((s) => s.trim()),
     createRemoteJWKSet(new URL(metadata.jwks_uri)),
+    c.OIDC_INTROSPECTION === "true"
+      ? async (token) => oidc.tokenIntrospection(settings, token)
+      : undefined,
   );
   return { verify, settings };
 }

@@ -91,6 +91,8 @@ export function providerError(
   if (status === 401) throw new MailError("PROVIDER_AUTH_REQUIRED", 401);
   if (status === 403) throw new MailError("PROVIDER_PERMISSION_DENIED", 403);
   if (status === 404) throw new MailError("NOT_FOUND", 404);
+  if (status === 409 || status === 412)
+    throw new MailError("REVISION_CONFLICT", 409);
   if (status === 429)
     throw new MailError("RATE_LIMITED", 429, {
       retryAfter: headers["retry-after"] || null,

@@ -79,6 +79,17 @@
             "access.token.claim": "true",
             "introspection.token.claim": "true"
           }
+        },
+        {
+          "name": "anymail-introspection-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "anymail-web",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
         }
       ],
       "fullScopeAllowed": false
@@ -128,6 +139,17 @@
           "protocolMapper": "oidc-sub-mapper",
           "config": {
             "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "anymail-introspection-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "anymail-web",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
             "introspection.token.claim": "true"
           }
         }

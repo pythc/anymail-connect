@@ -10,6 +10,8 @@ import {
   type Mutation,
 } from "../domain.js";
 import { Rest, enc } from "./rest.js";
+import { people } from "./contacts.js";
+import { draftSchema } from "../domain.js";
 import addressparser from "nodemailer/lib/addressparser";
 import { convert } from "html-to-text";
 import iconv from "iconv-lite";
@@ -121,7 +123,11 @@ export class GmailProvider implements MailProvider {
   constructor(
     public api: Rest,
     private email: string,
-  ) {}
+    private contactsApi?: Rest,
+  ) {
+    if (contactsApi)
+      this.capabilities = { ...this.capabilities, contacts: "native" };
+  }
   async verify() {
     const r = await this.api.call("/users/me/profile");
     return { email: r.emailAddress };
@@ -238,6 +244,8 @@ export class GmailProvider implements MailProvider {
     };
   }
   async extension(op: string, input: Record<string, unknown>) {
+    if (op.startsWith("contacts.") && this.contactsApi)
+      return people(this.contactsApi, op, input);
     if (op === "thread") {
       const r = await this.api.call(
         `/users/me/threads/${enc(String(input.id))}?format=full`,
@@ -274,6 +282,51 @@ export class GmailProvider implements MailProvider {
       });
     }
     throw new MailError("UNSUPPORTED_CAPABILITY", 422);
+  }
+  async nativeDraft(id: string) {
+    const r = await this.api.call(`/users/me/drafts/${enc(id)}?format=full`),
+      m = gmailMessage(r.message);
+    const bcc = addressparser(m.headers?.bcc ?? "", { flatten: true })
+      .map((a) => ("address" in a ? a.address : ""))
+      .filter(Boolean);
+    return {
+      version: String(r.message.id),
+      message: m,
+      content: draftSchema.parse({
+        to: m.to,
+        cc: m.cc ?? [],
+        bcc,
+        subject: m.subject,
+        text: m.text,
+        ...(m.html ? { html: m.html } : {}),
+        inReplyTo: m.headers?.["in-reply-to"],
+        references: m.references ?? [],
+      }),
+    };
+  }
+  async updateNativeDraft(
+    id: string,
+    version: string,
+    content: DraftContent,
+    attachments: OutgoingAttachment[],
+    _replaceAttachments?: boolean,
+    authorize?: () => Promise<void>,
+  ) {
+    await authorize?.();
+    if ((await this.nativeDraft(id)).version !== version)
+      throw new MailError("REVISION_CONFLICT", 409);
+    const raw = await compose(
+      this.email,
+      content,
+      attachments,
+      crypto.randomUUID(),
+    );
+    await authorize?.();
+    await this.api.call(`/users/me/drafts/${enc(id)}`, "PUT", {
+      id,
+      message: { raw: raw.toString("base64url") },
+    });
+    // Gmail exposes no documented atomic compare-and-swap on drafts.update.
   }
   async sync(checkpoint: any): Promise<import("../domain.js").SyncPage> {
     let c = checkpoint,

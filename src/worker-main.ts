@@ -4,6 +4,8 @@ import { Synchronizer } from "./sync.js";
 import { IdlePool } from "./idle.js";
 import { ChangeQueue } from "./change-queue.js";
 import { PushService } from "./push.js";
+import { NativeDrafts } from "./native-drafts.js";
+import { retain } from "./maintenance.js";
 const r = await runtime();
 const controller = new AbortController();
 for (const signal of ["SIGINT", "SIGTERM"])
@@ -62,6 +64,8 @@ await Promise.all([
   repeat(() => queue.drain(8, controller.signal), 1000),
   repeat(() => push.renew(controller.signal), 60_000),
   repeat(reconcile, 60_000),
+  repeat(() => new NativeDrafts(r.service).tick(controller.signal), 60_000),
+  repeat(() => retain(r.service, r.config, controller.signal), 3600_000),
 ]);
 await idle.close();
 await r.db.close();

@@ -147,6 +147,7 @@ export class PushService {
   }
   async enable(p: Principal, id: string) {
     requireScope(p, "mail.write");
+    await this.s.owner(p, id);
     await this.s.account(p, id);
     return this.locked(id, async (lease) => {
       const a = await this.s.account(p, id);
@@ -234,6 +235,7 @@ export class PushService {
   }
   async disable(p: Principal, id: string) {
     requireScope(p, "mail.write");
+    await this.s.owner(p, id);
     await this.s.account(p, id);
     return this.locked(id, async (lease) => {
       const a = await this.s.account(p, id),

@@ -14,7 +14,12 @@ import { mcp } from "./mcp.js";
 import { ProviderOAuth } from "./provider-oauth.js";
 import { page, style, script, escape, approvalPage } from "./ui.js";
 import { PushService, gmailPushVerifier, type PushVerify } from "./push.js";
-type Session = { principal: Principal; csrf: string; expiresAt: number };
+type Session = {
+  principal: Principal;
+  csrf: string;
+  expiresAt: number;
+  token?: string;
+};
 export async function app(
   service: MailService,
   config: Config,
@@ -87,6 +92,17 @@ export async function app(
     if (!row) throw new MailError("AUTH_REQUIRED", 401);
     const s = service.vault.open<Session>(row.sealed, "web:" + hash(sid));
     if (s.expiresAt <= Date.now()) throw new MailError("AUTH_REQUIRED", 401);
+    if (config.OIDC_INTROSPECTION === "true") {
+      if (!s.token) throw new MailError("AUTH_REQUIRED", 401);
+      const live = await verify(s.token);
+      if (
+        live.principal.subject !== s.principal.subject ||
+        live.principal.tenant !== s.principal.tenant ||
+        live.principal.client !== s.principal.client
+      )
+        throw new MailError("AUTH_REQUIRED", 401);
+      s.principal = live.principal;
+    }
     return s;
   }
   async function principal(req: FastifyRequest, write = false) {
@@ -103,7 +119,7 @@ export async function app(
       throw new MailError("CSRF_REQUIRED", 403);
     return s.principal;
   }
-  f.get("/healthz", async () => ({ status: "ok", version: "0.2.0" }));
+  f.get("/healthz", async () => ({ status: "ok", version: "0.3.0" }));
   const push = new PushService(service, config);
   f.get("/api/push/:account", async (req) =>
     push.status(
@@ -237,7 +253,11 @@ export async function app(
     );
     const identity = await verify(grant.access_token),
       sid = opaque(),
-      value: Session = { ...identity, csrf: opaque() };
+      value: Session = {
+        ...identity,
+        csrf: opaque(),
+        token: grant.access_token,
+      };
     await service.store.setSession(
       "web:" + hash(sid),
       { sealed: service.vault.seal(value, "web:" + hash(sid)) },
@@ -255,7 +275,15 @@ export async function app(
   });
   f.get("/api/me", async (req) => {
     const s = await session(req);
-    return { principal: s.principal, csrf: s.csrf };
+    return {
+      principal: s.principal,
+      csrf: s.csrf,
+      retention: service.features.retention ?? {
+        cacheDays: 30,
+        draftDays: 0,
+        auditDays: 0,
+      },
+    };
   });
   f.post("/api/logout", async (req, reply) => {
     await principal(req, true);

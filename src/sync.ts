@@ -13,6 +13,7 @@ export class Synchronizer {
         `${accountId}:checkpoint:${a.provider === "gmail" ? "all" : folder}`,
       );
     // Use a session lease (CAS) instead of holding account locks during provider token refresh.
+    if (a.owner !== p.subject) throw new MailError("OWNER_SYNC_REQUIRED", 403);
     const lease = "sync:" + key,
       leaseToken = opaque();
     const acquired = await this.s.store.db.query(
@@ -120,17 +121,21 @@ export class Synchronizer {
     }
   }
   async search(p: Principal, accountId: string, query: string, offset = 0) {
-    await this.s.account(p, accountId);
+    const a = await this.s.account(p, accountId);
     const r = await this.s.store.db.query<{ data: Message }>(
       "SELECT data FROM documents WHERE tenant=$1 AND owner=$2 AND account_id=$3 AND kind='cache' AND (strpos(lower(data->>'subject'),lower($4))>0 OR strpos(lower(data->>'text'),lower($4))>0) ORDER BY data->>'date' DESC,id LIMIT 51 OFFSET $5",
-      [p.tenant, p.subject, accountId, query, offset],
+      [p.tenant, a.owner, accountId, query, offset],
     );
     return {
       items: r.rows.slice(0, 50).map((x) => x.data),
       next_offset: r.rows.length > 50 ? offset + 50 : null,
       coverage:
         "local snapshot only; may be incomplete/stale; attachments not indexed",
-      checkpoints: await this.s.store.list(p, accountId, "checkpoint"),
+      checkpoints: await this.s.store.list(
+        { ...p, subject: a.owner },
+        accountId,
+        "checkpoint",
+      ),
     };
   }
 }

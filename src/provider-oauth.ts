@@ -73,9 +73,10 @@ export class ProviderOAuth {
       scope:
         provider === "gmail"
           ? writable
-            ? "https://www.googleapis.com/auth/gmail.modify"
+            ? "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/contacts"
             : [
                 "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/contacts.readonly",
                 ...(sendEnabled
                   ? ["https://www.googleapis.com/auth/gmail.send"]
                   : []),
@@ -87,7 +88,7 @@ export class ProviderOAuth {
               ...(sendEnabled
                 ? [`${graph}/Mail.Send${mailbox ? ".Shared" : ""}`]
                 : []),
-              ...(writable && !mailbox ? [`${graph}/Contacts.ReadWrite`] : []),
+              `${graph}/Contacts.${writable ? "ReadWrite" : "Read"}${mailbox ? ".Shared" : ""}`,
             ].join(" "),
       state,
       code_challenge: createHash("sha256").update(verifier).digest("base64url"),

@@ -580,7 +580,8 @@ test("persistent mail workflows, isolation, consent and recovery", async (t) => 
           crypto.randomUUID(),
         );
       const before = await f.store.account(alice, f.account.id);
-      await f.db.query("DELETE FROM schema_version WHERE version=2");
+      await f.db.query("DELETE FROM schema_version WHERE version>=2");
+      await f.db.query("DROP TABLE account_grants");
       await f.db.query("DROP TABLE change_requests");
       const { migrate } = await import("../src/db.js");
       await migrate(f.db);
@@ -599,7 +600,7 @@ test("persistent mail workflows, isolation, consent and recovery", async (t) => 
             "SELECT version FROM schema_version ORDER BY version",
           )
         ).rows.length,
-        2,
+        3,
       );
       assert.equal(
         (await f.db.query("SELECT id FROM change_requests")).rows.length,
@@ -608,10 +609,10 @@ test("persistent mail workflows, isolation, consent and recovery", async (t) => 
     },
   );
   await t.test("schema newer than executable blocks rollback", async () => {
-    await f.db.query("INSERT INTO schema_version VALUES(3)");
+    await f.db.query("INSERT INTO schema_version VALUES(4)");
     const { migrate } = await import("../src/db.js");
     await assert.rejects(migrate(f.db), /newer/);
-    await f.db.query("DELETE FROM schema_version WHERE version=3");
+    await f.db.query("DELETE FROM schema_version WHERE version=4");
   });
   await t.test(
     "account revoke cancels queued sends and deletes scoped private documents",

@@ -4,10 +4,9 @@ A unified, self-hostable email integration layer for MCP clients, with a planned
 
 面向个人与企业邮箱的统一接入底座：原生 API 保留服务商能力，IMAP/SMTP 扩大兼容范围，通过 MCP 提供可审计的邮件工作流。
 
-**状态：0.2.0 开发实现，可本地构建与验证。** 已有 Gmail API、Graph、IMAP/SMTP、JMAP 适配器，HTTP MCP、OIDC、管理界面、持久草稿/发送队列与同步。新增有界 IMAP IDLE、鉴权推送/自动续期、持久通知队列、Graph 云环境选择与 JMAP 跨源白名单。真实邮箱、生产部署和 ChatGPT 安装验收尚未完成。更新日期：2026-11-04（Asia/Shanghai）。
+**状态：0.3.0 开发实现。** 邮件底座覆盖 Gmail、Graph、IMAP/SMTP、JMAP，并增加受管理员约束的本地 EWS；本轮补齐 People/CardDAV 联系人、MCP Apps 阅读/编辑与文件资源、原生草稿同步、附件格式/OCR/私有全文索引，以及团队权限、在线 token 检查、密钥轮换和保留清理。真实邮箱、生产部署和 ChatGPT 安装验收尚未完成。更新日期：2026-11-04。
 
-验证：102 项测试在 PGlite 与独立 PostgreSQL 17 各通过，另有实际 TLS/STARTTLS IMAP/SMTP、HTTP MCP SDK 与桌面/移动浏览器检查；详见 [0.2.0 变更与验证](docs/release-0.2.zh-CN.md) 和 [审查修复记录](docs/review-0.2.zh-CN.md)；[0.1.0 审查记录](docs/review.zh-CN.md) 保留为历史证据。
-
+实现范围、测试和明确限制见 [0.3.0 变更与验证](docs/release-0.3.zh-CN.md) 与 [运维步骤](docs/operations-0.3.zh-CN.md)。历史 [0.2.0](docs/release-0.2.zh-CN.md) / [0.1.0](docs/review.zh-CN.md) 记录保留，不代替本轮审查。
 当前实现、边界与证据见 [实现状态](docs/implementation.zh-CN.md)、[TODO](TODO.md)、[部署与回滚](docs/deployment.zh-CN.md)。原下方内容为立项设计，实际行为以实现状态为准。
 
 ```sh

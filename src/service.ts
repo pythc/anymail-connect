@@ -98,6 +98,7 @@ type Blob = {
   size: number;
   content: string;
   sha256: string;
+  createdAt?: string;
 };
 export function cleanHtml(html: string) {
   return sanitizeHtml(html, {
@@ -146,16 +147,111 @@ export class MailService {
     public vault: Vault,
     public providers: ProviderFactory,
     public baseUrl: string,
+    public features: {
+      ocr?: { binary: string; languages: string };
+      hostFileOrigins?: string[];
+      retention?: { cacheDays: number; draftDays: number; auditDays: number };
+    } = {},
   ) {}
   async account(p: Principal, accountId: string, scope = "mail.read") {
     requireScope(p, scope);
-    const a = await this.store.account(p, accountId);
+    const a = await this.store.account(
+      p,
+      accountId,
+      this.store.db,
+      false,
+      scope,
+    );
     if (!a.verified) throw new MailError("CONNECTION_NOT_VERIFIED", 409);
     if (scope !== "mail.read" && !a.writable)
       throw new MailError("ACCOUNT_READ_ONLY", 403);
     if (scope === "mail.send" && !a.sendEnabled)
       throw new MailError("SEND_DISABLED", 403);
     return a;
+  }
+  async owner(p: Principal, accountId: string) {
+    requireScope(p, "mail.write");
+    const a = await this.store.account(p, accountId);
+    if (a.owner !== p.subject) throw new MailError("OWNER_REQUIRED", 403);
+    return a;
+  }
+  async grants(p: Principal, accountId: string) {
+    await this.owner(p, accountId);
+    return (
+      await this.store.db.query(
+        "SELECT subject,scopes,expires_at FROM account_grants WHERE account_id=$1 AND tenant=$2 ORDER BY subject",
+        [accountId, p.tenant],
+      )
+    ).rows;
+  }
+  async grant(
+    p: Principal,
+    accountId: string,
+    subject: string,
+    scopes: string[],
+    expiresAt: string,
+  ) {
+    await this.owner(p, accountId);
+    if (
+      !subject ||
+      subject.length > 200 ||
+      subject === p.subject ||
+      !scopes.includes("mail.read") ||
+      scopes.some(
+        (s) => !["mail.read", "mail.write", "mail.send"].includes(s),
+      ) ||
+      (scopes.includes("mail.send") && !scopes.includes("mail.write")) ||
+      !Number.isFinite(Date.parse(expiresAt)) ||
+      Date.parse(expiresAt) <= Date.now() ||
+      Date.parse(expiresAt) > Date.now() + 366 * 86400_000
+    )
+      throw new MailError("INVALID_GRANT");
+    await this.store.db.transaction(async (tx) => {
+      const a = await this.store.account(p, accountId, tx, true);
+      if (a.owner !== p.subject) throw new MailError("OWNER_REQUIRED", 403);
+      const previous = await tx.query(
+        "SELECT subject FROM account_grants WHERE account_id=$1 AND tenant=$2 AND subject=$3 AND expires_at>now()",
+        [accountId, p.tenant, subject],
+      );
+      if (!scopes.includes("mail.send") || !previous.rows.length)
+        await tx.query(
+          "UPDATE operations SET state='cancelled',data=jsonb_set(data,'{state}','\"cancelled\"') WHERE account_id=$1 AND tenant=$2 AND owner=$3 AND state IN ('pending','approved')",
+          [accountId, p.tenant, subject],
+        );
+      await tx.query(
+        "INSERT INTO account_grants VALUES($1,$2,$3,$4,$5) ON CONFLICT(account_id,subject) DO UPDATE SET scopes=EXCLUDED.scopes,expires_at=EXCLUDED.expires_at",
+        [
+          accountId,
+          p.tenant,
+          subject,
+          JSON.stringify([...new Set(scopes)]),
+          expiresAt,
+        ],
+      );
+      await this.store.audit(p, accountId, "grant.update", subject, "ok", tx);
+    });
+    return { subject, scopes, expiresAt };
+  }
+  async revokeGrant(p: Principal, accountId: string, subject: string) {
+    await this.owner(p, accountId);
+    if (subject === p.subject) throw new MailError("INVALID_GRANT");
+    await this.store.db.transaction(async (tx) => {
+      await this.store.account(p, accountId, tx, true);
+      await tx.query(
+        "DELETE FROM account_grants WHERE account_id=$1 AND tenant=$2 AND subject=$3",
+        [accountId, p.tenant, subject],
+      );
+      await tx.query(
+        "UPDATE operations SET state='cancelled',data=jsonb_set(data,'{state}','\"cancelled\"') WHERE account_id=$1 AND tenant=$2 AND owner=$3 AND state IN ('pending','approved')",
+        [accountId, p.tenant, subject],
+      );
+      await tx.query(
+        "DELETE FROM documents WHERE account_id=$1 AND tenant=$2 AND owner=$3",
+        [accountId, p.tenant, subject],
+      );
+      await this.store.audit(p, accountId, "grant.revoke", subject, "ok", tx);
+    });
+    return { revoked: true };
   }
   async connect(
     p: Principal,
@@ -214,19 +310,23 @@ export class MailService {
   }
   async revoke(p: Principal, accountId: string) {
     requireScope(p, "mail.write");
+    await this.owner(p, accountId);
     await this.store.db.transaction(async (tx) => {
       const a = await this.store.account(p, accountId, tx, true);
       a.revoked = true;
       a.secret = "";
       await this.store.updateAccount(a, tx);
       await tx.query(
-        "UPDATE operations SET state='cancelled',data=jsonb_set(data,'{state}','\"cancelled\"') WHERE account_id=$1 AND tenant=$2 AND owner=$3 AND state IN ('pending','approved')",
-        [accountId, p.tenant, p.subject],
+        "UPDATE operations SET state='cancelled',data=jsonb_set(data,'{state}','\"cancelled\"') WHERE account_id=$1 AND tenant=$2 AND state IN ('pending','approved')",
+        [accountId, p.tenant],
       );
       await tx.query(
-        "DELETE FROM documents WHERE account_id=$1 AND tenant=$2 AND owner=$3",
-        [accountId, p.tenant, p.subject],
+        "DELETE FROM documents WHERE account_id=$1 AND tenant=$2",
+        [accountId, p.tenant],
       );
+      await tx.query("DELETE FROM account_grants WHERE account_id=$1", [
+        accountId,
+      ]);
       await tx.query(
         "DELETE FROM change_requests WHERE account_id=$1 AND tenant=$2 AND owner=$3",
         [accountId, p.tenant, p.subject],
@@ -306,6 +406,7 @@ export class MailService {
       size: bytes.length,
       content: bytes.toString("base64"),
       sha256: hash(bytes),
+      createdAt: new Date().toISOString(),
     };
     await this.store.put(p, accountId, "blob", blob.id, blob);
     return { id: blob.id, name, type, size: blob.size, sha256: blob.sha256 };
@@ -579,26 +680,37 @@ export class MailService {
       dueAt: new Date(due).toISOString(),
       expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
     };
-    await this.store.db.query(
-      "INSERT INTO operations VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(tenant,owner,account_id,dedupe) DO NOTHING",
-      [
-        op.id,
-        p.tenant,
-        p.subject,
+    const existing = await this.store.db.transaction(async (tx) => {
+      const current = await this.store.account(
+        p,
         accountId,
-        p.client,
-        dedupe,
-        op.state,
-        op.dueAt,
-        JSON.stringify(op),
-      ],
-    );
-    const existing = (
-      await this.store.db.query<{ data: Operation }>(
-        "SELECT data FROM operations WHERE tenant=$1 AND owner=$2 AND account_id=$3 AND dedupe=$4",
-        [p.tenant, p.subject, accountId, dedupe],
-      )
-    ).rows[0]!.data;
+        tx,
+        true,
+        "mail.send",
+      );
+      if (!current.writable || !current.sendEnabled)
+        throw new MailError("SEND_DISABLED", 403);
+      await tx.query(
+        "INSERT INTO operations VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(tenant,owner,account_id,dedupe) DO NOTHING",
+        [
+          op.id,
+          p.tenant,
+          p.subject,
+          accountId,
+          p.client,
+          dedupe,
+          op.state,
+          op.dueAt,
+          JSON.stringify(op),
+        ],
+      );
+      return (
+        await tx.query<{ data: Operation }>(
+          "SELECT data FROM operations WHERE tenant=$1 AND owner=$2 AND account_id=$3 AND dedupe=$4",
+          [p.tenant, p.subject, accountId, dedupe],
+        )
+      ).rows[0]!.data;
+    });
     if (existing.digest !== digest || existing.client !== p.client)
       throw new MailError("IDEMPOTENCY_CONFLICT", 409);
     return {
@@ -636,7 +748,13 @@ export class MailService {
     requireScope(p, "mail.send");
     return this.store.db.transaction(async (tx) => {
       const initial = await this.operation(p, operationId, tx);
-      const a = await this.store.account(p, initial.accountId, tx, true);
+      const a = await this.store.account(
+        p,
+        initial.accountId,
+        tx,
+        true,
+        "mail.send",
+      );
       const op = await this.operation(p, operationId, tx, true);
       if (
         op.state !== "pending" ||
@@ -671,7 +789,13 @@ export class MailService {
     requireScope(p, "mail.send");
     const op = await this.store.db.transaction(async (tx) => {
       const initial = await this.operation(p, operationId, tx);
-      const a = await this.store.account(p, initial.accountId, tx, true);
+      const a = await this.store.account(
+        p,
+        initial.accountId,
+        tx,
+        true,
+        "mail.send",
+      );
       const o = await this.operation(p, operationId, tx, true);
       if (!worker && o.client !== p.client)
         throw new MailError("CLIENT_MISMATCH", 403);

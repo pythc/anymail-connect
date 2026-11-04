@@ -19,6 +19,8 @@ import { GraphProvider } from "./graph.js";
 import { ImapProvider } from "./imap.js";
 import { JmapProvider } from "./jmap.js";
 import { microsoftClouds } from "./microsoft.js";
+import { CardDav } from "./contacts.js";
+import { EwsProvider } from "./ews.js";
 export type ProviderFactory = (account: Account) => Promise<MailProvider>;
 export function makeFactory(
   store: Store,
@@ -26,10 +28,28 @@ export function makeFactory(
   policy: NetworkPolicy,
   http: HttpRequest = httpClient(policy),
   jmapOrigins: string[] = [],
+  ewsOrigins: string[] = [],
 ): ProviderFactory {
   return async (account) => {
     const context = `${account.tenant}:${account.owner}:${account.id}`;
     const connection = vault.open<Connection>(account.secret, context);
+    const configured = (provider: MailProvider) => {
+      if (connection.carddav) {
+        const dav = new CardDav(connection.carddav, http),
+          extension = provider.extension?.bind(provider);
+        provider.capabilities = {
+          ...provider.capabilities,
+          contacts: "native",
+        };
+        provider.extension = (op, i) =>
+          op.startsWith("contacts.")
+            ? dav.run(op, i)
+            : extension
+              ? extension(op, i)
+              : Promise.reject(new MailError("UNSUPPORTED_CAPABILITY", 422));
+      }
+      return provider;
+    };
     const p: Principal = {
       tenant: account.tenant,
       subject: account.owner,
@@ -76,22 +96,29 @@ export function makeFactory(
         return c.oauth.accessToken;
       });
     if (connection.provider === "gmail")
-      return new GmailProvider(
-        new Rest("https://gmail.googleapis.com/gmail/v1", token, http),
-        connection.email,
+      return configured(
+        new GmailProvider(
+          new Rest("https://gmail.googleapis.com/gmail/v1", token, http),
+          connection.email,
+          new Rest("https://people.googleapis.com/v1", token, http),
+        ),
       );
     if (connection.provider === "graph")
-      return new GraphProvider(
-        new Rest(
-          microsoftClouds[connection.cloud ?? "global"].graph + "/v1.0",
-          token,
-          http,
+      return configured(
+        new GraphProvider(
+          new Rest(
+            microsoftClouds[connection.cloud ?? "global"].graph + "/v1.0",
+            token,
+            http,
+          ),
+          connection.mailbox,
+          connection.email,
         ),
-        connection.mailbox,
-        connection.email,
       );
     if (connection.provider === "imap")
-      return new ImapProvider(connection, policy);
-    return new JmapProvider(connection, http, jmapOrigins);
+      return configured(new ImapProvider(connection, policy));
+    if (connection.provider === "ews")
+      return configured(new EwsProvider(connection, http, ewsOrigins));
+    return configured(new JmapProvider(connection, http, jmapOrigins));
   };
 }

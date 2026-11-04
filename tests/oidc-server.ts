@@ -10,6 +10,7 @@ const c = config({
   BASE_URL: "http://localhost:4390",
   OIDC_ISSUER: "http://localhost:4391/realms/anymail",
   OIDC_AUDIENCE: "http://localhost:4390/mcp",
+  OIDC_INTROSPECTION: "true",
   OIDC_CLIENT_ID: "anymail-web",
   OIDC_CLIENT_SECRET: "local-oidc-lab-only",
   ALLOWED_CLIENT_IDS: "anymail-web,anymail-chatgpt",

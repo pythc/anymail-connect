@@ -12,6 +12,7 @@ import {
 import type { MailService } from "./service.js";
 import { Synchronizer } from "./sync.js";
 import { extract } from "./extract.js";
+import { enhancements } from "./enhancements.js";
 const account = z.string().uuid(),
   identifier = z.string().min(1).max(4000);
 const mutation = z
@@ -58,6 +59,7 @@ export type Tool = {
   readOnly: boolean;
   destructive?: boolean;
   ui?: boolean;
+  fileParams?: string[];
   run: (p: Principal, input: any) => Promise<unknown>;
 };
 export function tools(s: MailService): Tool[] {
@@ -88,10 +90,13 @@ export function tools(s: MailService): Tool[] {
         account_id: account,
         message_id: identifier,
         attachment_id: identifier,
+        ocr: z.boolean().default(false),
       })
       .strict(),
     true,
     async (p, i) => {
+      if (i.ocr && !s.features.ocr)
+        throw new MailError("OCR_NOT_CONFIGURED", 503);
       const a = await s.attachment(
         p,
         i.account_id,
@@ -101,7 +106,12 @@ export function tools(s: MailService): Tool[] {
       return {
         name: a.name,
         mime_type: a.type,
-        ...(await extract(a.content, a.type, a.name)),
+        ...(await extract(
+          a.content,
+          a.type,
+          a.name,
+          i.ocr ? { ocr: s.features.ocr } : {},
+        )),
       };
     },
   );
@@ -403,6 +413,7 @@ export function tools(s: MailService): Tool[] {
             folder: identifier.optional(),
             parent: identifier.optional(),
             cursor: identifier.optional(),
+            etag: z.string().max(2000).optional(),
             contact: contact.optional(),
           })
           .strict(),
@@ -551,5 +562,5 @@ export function tools(s: MailService): Tool[] {
       };
     },
   );
-  return t;
+  return [...t, ...enhancements(s)];
 }
