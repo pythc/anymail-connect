@@ -25,6 +25,7 @@ const envSchema = z.object({
   OIDC_CLIENT_SECRET: z.string().optional(),
   ALLOWED_CLIENT_IDS: z.string().min(1),
   PRIVATE_ENDPOINTS: z.string().default(""),
+  OUTBOUND_PROXY_URL: z.string().default(""),
   JMAP_ALLOWED_ORIGINS: z.string().default(""),
   EWS_ALLOWED_ORIGINS: z.string().default(""),
   IMAP_IDLE_CONNECTIONS: z.coerce.number().int().min(0).max(100).default(8),
@@ -49,6 +50,16 @@ const envSchema = z.object({
 export type Config = z.infer<typeof envSchema>;
 export function config(env = process.env): Config {
   const c = envSchema.parse(env);
+  if (c.OUTBOUND_PROXY_URL) {
+    const proxy = new URL(c.OUTBOUND_PROXY_URL);
+    if (
+      !["http:", "https:"].includes(proxy.protocol) ||
+      proxy.pathname !== "/" ||
+      proxy.search ||
+      proxy.hash
+    )
+      throw new Error("OUTBOUND_PROXY_URL requires an HTTP(S) proxy origin");
+  }
   for (const raw of [c.BASE_URL, c.OIDC_ISSUER]) {
     const u = new URL(raw);
     if (

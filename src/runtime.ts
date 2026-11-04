@@ -21,6 +21,7 @@ export async function runtime() {
       store,
       vault,
       {
+        outboundProxy: c.OUTBOUND_PROXY_URL || undefined,
         privateEndpoints: c.PRIVATE_ENDPOINTS.split(",")
           .map((s) => s.trim())
           .filter(Boolean),

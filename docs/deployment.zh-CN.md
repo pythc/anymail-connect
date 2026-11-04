@@ -68,6 +68,8 @@ API 只映射到宿主 127.0.0.1:3000。配置 HTTPS 反向代理并保留原 Ho
 
 内网/Proton Bridge 使用管理员配置的 `PRIVATE_ENDPOINTS` 精确 `host:port` allowlist，并配置可信 CA。该选项不是“关闭 TLS 校验”；不支持无 TLS 密码传输。IMAP 有别名认证名时分别填写 email 与 username；发件身份固定为连接时配置的 email；IMAP 登录仅证明能访问该邮箱，并不独立证明 From 所有权，SMTP 服务商仍须校验发件权限。Gmail/Graph 使用原生账号或委派身份校验，任意 Send As 尚未开放。
 
+邮箱 HTTP API 与服务商 OAuth 可以设置管理员专用的 `OUTBOUND_PROXY_URL=http://proxy.example:3128`，支持 HTTP/HTTPS CONNECT 代理及 URL 内代理认证。默认直连；IMAP/SMTP、OIDC 和宿主文件下载不使用此选项。容器中的 `localhost` 指容器本身；Docker Desktop 访问宿主现有代理可使用 `host.docker.internal`，前提是该代理接受容器连接。只配置受信任代理，凭证放入私有环境文件。每次请求仍先检查目的地主机、全部 DNS 地址和端口，再将已批准的 IP 交给 CONNECT（优先 IPv4，不自动切换地址），保留原 Host、TLS SNI 与证书验证；代理必须支持 IP 目的地隧道。不会自动跟随重定向或在失败时降级直连。代理配置不会自动授权任何私有目标。
+
 ## MCP 与插件包
 
 MCP 地址为 `BASE_URL/mcp`，发现文档为 `BASE_URL/.well-known/oauth-protected-resource`。在 ChatGPT 的自定义 MCP 连接中选择预注册 OAuth client，使用 `anymail-chatgpt`、PKCE、token endpoint auth method `none`；回调 URI 从目标连接页面复制，不使用通配符。

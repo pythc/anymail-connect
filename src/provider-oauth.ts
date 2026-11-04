@@ -109,7 +109,10 @@ export class ProviderOAuth {
       throw new MailError("OAUTH_IDENTITY_MISMATCH", 403);
     const cloud = s.cloud ?? "global";
     const o = this.options(s.provider, cloud),
-      http = httpClient({ privateEndpoints: [] });
+      http = httpClient({
+        privateEndpoints: [],
+        outboundProxy: this.c.OUTBOUND_PROXY_URL || undefined,
+      });
     const r = await http(o.token, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
