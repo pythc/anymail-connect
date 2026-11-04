@@ -16,7 +16,7 @@ with sync_playwright() as p:
     page.goto(base+'/connect')
     expect(page.locator('html')).to_have_attribute('lang','en')
     expect(page.get_by_role('heading',name='Connect a mailbox')).to_be_visible()
-    expect(page.locator('#authorization')).to_be_enabled()
+    expect(page.get_by_role('button',name='Continue to provider')).to_be_enabled()
     assert page.locator('#search, #draft, #messages').count() == 0
     expect(page.locator('[name=writable]')).not_to_be_checked()
     expect(page.locator('[name=sendEnabled]')).not_to_be_checked()
@@ -28,7 +28,7 @@ with sync_playwright() as p:
     page.get_by_role('button',name='Continue to provider').click()
     page.wait_for_url(base+'/connect?authorized=1')
     assert requests == [{'provider':'gmail','writable':False,'sendEnabled':False}], requests
-    expect(page.locator('#authorization')).to_be_enabled()
+    expect(page.get_by_role('button',name='Continue to provider')).to_be_enabled()
     page.locator('[name=sendEnabled]').check()
     page.get_by_role('button',name='Continue to provider').click()
     expect(page.locator('#status')).to_contain_text('Sending requires mail changes')
@@ -41,7 +41,7 @@ with sync_playwright() as p:
     page.locator('[name=provider]').select_option('graph')
     page.locator('[name=writable]').check()
     page.get_by_role('button',name='Continue to provider').click()
-    expect(page.locator('#authorization')).to_be_enabled()
+    expect(page.get_by_role('button',name='Continue to provider')).to_be_enabled()
     assert requests[-1] == {'provider':'graph','writable':True,'sendEnabled':False,'mailbox':'shared@example.com'}, requests
     page.unroute('**/api/oauth/start',authorize)
     page.goto(base+'/approve/'+session['operation'])
@@ -63,7 +63,7 @@ with sync_playwright() as p:
     expect(page.get_by_role('button',name='Sign out')).to_be_enabled()
     page.get_by_role('button',name='Sign out').click()
     expect(page.locator('#status')).to_contain_text('Sign in to authorize')
-    expect(page.locator('#authorization')).to_be_disabled()
+    expect(page.get_by_role('button',name='Continue to provider')).to_be_disabled()
     assert page.request.get(base+'/api/me').status == 401
     assert page.request.get(base+'/').json()['mcp'] == '/mcp'
     assert page.request.get(base+'/app.js').status == 404
