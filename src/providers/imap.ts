@@ -42,37 +42,59 @@ export class ImapProvider implements MailProvider {
     private config: ImapConnection,
     private policy: NetworkPolicy,
   ) {}
-  private async client(idle = false) {
-    const c = this.config,
-      address = (
-        await resolveEndpoint(c.imap.host, c.imap.port, this.policy)
-      )[0]!;
-    const options: ImapFlowOptions = {
-      host: address.address,
-      port: c.imap.port,
-      secure: c.imap.secure,
-      ...(c.imap.secure ? {} : { doSTARTTLS: true }),
-      ...(isIP(c.imap.host) ? {} : { servername: c.imap.host }),
-      auth: { user: c.username, pass: c.password },
-      logger: false,
-      tls: {
-        rejectUnauthorized: true,
-        ...(isIP(c.imap.host) ? {} : { servername: c.imap.host }),
-      },
-      connectionTimeout: 15_000,
-      socketTimeout: idle ? 30 * 60_000 : 30_000,
-      ...(idle ? { disableAutoIdle: true, maxIdleTime: 25 * 60_000 } : {}),
-      maxLiteralSize: MAX_MESSAGE,
+  private async client(idle = false, signal?: AbortSignal) {
+    const setup = AbortSignal.any([
+      ...(signal ? [signal] : []),
+      AbortSignal.timeout(15_000),
+    ]);
+    let client: ImapFlow | undefined;
+    let rejectSetup!: (reason: unknown) => void;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      rejectSetup = reject;
+    });
+    const close = () => {
+      client?.close();
+      rejectSetup(setup.reason);
     };
-    const client = new ImapFlow(options);
-    client.on("error", () => {});
+    setup.addEventListener("abort", close, { once: true });
     try {
-      await client.connect();
+      setup.throwIfAborted();
+      const c = this.config,
+        address = (
+          await Promise.race([
+            resolveEndpoint(c.imap.host, c.imap.port, this.policy),
+            cancelled,
+          ])
+        )[0]!;
+      setup.throwIfAborted();
+      const options: ImapFlowOptions = {
+        host: address.address,
+        port: c.imap.port,
+        secure: c.imap.secure,
+        ...(c.imap.secure ? {} : { doSTARTTLS: true }),
+        ...(isIP(c.imap.host) ? {} : { servername: c.imap.host }),
+        auth: { user: c.username, pass: c.password },
+        logger: false,
+        tls: {
+          rejectUnauthorized: true,
+          ...(isIP(c.imap.host) ? {} : { servername: c.imap.host }),
+        },
+        connectionTimeout: 15_000,
+        socketTimeout: idle ? 30 * 60_000 : 30_000,
+        ...(idle ? { disableAutoIdle: true, maxIdleTime: 25 * 60_000 } : {}),
+        maxLiteralSize: MAX_MESSAGE,
+      };
+      client = new ImapFlow(options);
+      client.on("error", () => {});
+      await Promise.race([client.connect(), cancelled]);
+      setup.throwIfAborted();
+      return client;
     } catch (e) {
-      client.close();
+      client?.close();
       throw e;
+    } finally {
+      setup.removeEventListener("abort", close);
     }
-    return client;
   }
   private async withClient<T>(fn: (c: ImapFlow) => Promise<T>) {
     const c = await this.client();
@@ -102,10 +124,11 @@ export class ImapProvider implements MailProvider {
   }
   async watch(folder: string, onChange: () => void, signal: AbortSignal) {
     if (signal.aborted) return;
-    const c = await this.client(true);
-    const close = () => c.close();
-    signal.addEventListener("abort", close, { once: true });
+    let c: ImapFlow | undefined;
+    const close = () => c?.close();
     try {
+      c = await this.client(true, signal);
+      signal.addEventListener("abort", close, { once: true });
       if (signal.aborted) return;
       if (!c.capabilities.has("IDLE"))
         throw new MailError("IDLE_UNSUPPORTED", 422);
@@ -124,7 +147,7 @@ export class ImapProvider implements MailProvider {
       if (!signal.aborted) throw e;
     } finally {
       signal.removeEventListener("abort", close);
-      c.close();
+      c?.close();
     }
   }
   private async parse(

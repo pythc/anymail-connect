@@ -95,6 +95,35 @@ export class IdlePool {
       };
       this.entries.set(a.id, entry);
       entry.done = (async () => {
+        let dirty = false,
+          closed = false,
+          timer: ReturnType<typeof setTimeout> | undefined,
+          writing: Promise<void> | undefined;
+        const schedule = () => {
+          if (
+            closed ||
+            entry.controller.signal.aborted ||
+            !dirty ||
+            timer ||
+            writing
+          )
+            return;
+          // A fixed window cannot be postponed indefinitely by more events.
+          timer = setTimeout(() => {
+            timer = undefined;
+            if (closed || entry.controller.signal.aborted) return;
+            dirty = false;
+            writing = this.queue
+              .enqueue(a)
+              .catch(() => {
+                dirty = true;
+              })
+              .finally(() => {
+                writing = undefined;
+                schedule();
+              });
+          }, 500);
+        };
         try {
           const provider = await this.s.providers(a);
           if (!provider.watch) throw Error("IDLE_UNSUPPORTED");
@@ -102,13 +131,18 @@ export class IdlePool {
           await provider.watch(
             "INBOX",
             () => {
-              void this.queue.enqueue(a).catch(() => {});
+              if (closed || entry.controller.signal.aborted) return;
+              dirty = true;
+              schedule();
             },
             entry.controller.signal,
           );
         } catch {
           this.retry.set(a.id, this.now() + 60_000);
         } finally {
+          closed = true;
+          clearTimeout(timer);
+          await writing;
           await this.s.store.db
             .query("DELETE FROM sessions WHERE id=$1 AND data->>'token'=$2", [
               "idle:" + a.id,

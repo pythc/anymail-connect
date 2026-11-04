@@ -86,7 +86,7 @@ MCP 地址为 `BASE_URL/mcp`，发现文档为 `BASE_URL/.well-known/oauth-prote
 
 ## 0.2.0 即时同步与云环境
 
-`IMAP_IDLE_CONNECTIONS` 默认每 worker 8 条，0 关闭监听。每账号 INBOX 通过数据库租约避免多个 worker 重复占用，连接每 20 分钟轮转；服务器缺少 IDLE 或连接失败时保留周期对账。监听回调只写入持久同步请求。网页和 `notifications_status` 显示账号推送状态/worker 分配；worker 租约不代表已完成远端 TLS 握手，也不意味着 ChatGPT 会被主动唤醒。
+`IMAP_IDLE_CONNECTIONS` 默认每 worker 8 条，0 关闭监听。每账号 INBOX 通过数据库租约避免多个 worker 重复占用，连接每 20 分钟轮转；服务器缺少 IDLE 或连接失败时保留周期对账。初始化含 DNS/握手/认证的总期限为 15 秒，取消信号覆盖初始化阶段。事件用固定 500ms 窗口合并，每账号最多一笔入队写入在途，期间新事件保留一次后续信号。断连/停机时尚未落库的防抖信号由重连首次入队和周期对账补偿。网页和 `notifications_status` 显示账号推送状态/worker 分配；worker 租约不代表已完成远端 TLS 握手，也不意味着 ChatGPT 会被主动唤醒。
 
 Graph 云环境在注册应用前选择：`MICROSOFT_CLOUD=global|usgov|usgovdod|china`。OAuth 授权、token 交换/刷新和 Graph API 使用对应静态端点；旧凭证省略 cloud 时使用 global。个人 Outlook 账号使用 global，其他云需要对应组织的应用注册、权限和真实账号验收。Graph 委派共享邮箱不能订阅该共享文件夹推送，继续周期对账。[官方云端点](https://learn.microsoft.com/en-us/graph/deployments)、[Outlook 通知权限限制](https://learn.microsoft.com/en-us/graph/outlook-change-notifications-overview)。
 
@@ -98,6 +98,8 @@ Gmail 推送由部署方先在 **OAuth 应用同一 Google 项目** 创建 Pub/S
 4. 登录管理网页，选择已有 Gmail 账号后点击“启用服务商推送”。定期续期，并保留 history/周期对账。通知中的 historyId 只作提示，不覆盖已提交检查点。
 
 Graph 推送同样在账号管理页开启，回调为 `BASE_URL/webhooks/graph`，必须公网可访问的 HTTPS。端点处理 validationToken，并按订阅 ID 和加密保存的随机 clientState 验证通知。基础通知不要求正文资源随回调传输；服务端以原账号权限查询增量。生命周期事件会请求续期与对账。远端停止结果不确定时，本地先禁用通知处理，远端订阅可能保留至其到期。撤销连接后，本地不再接收该账号的工作；已发出的远端请求不能保证撤回。
+
+查看推送状态要求 `mail.read`；启停 Gmail/Graph 推送要求账号所有者同时具有 `mail.read` 和 `mail.write`（连接配置管理权限）。邮箱的 `writable=false` 策略不妨碍该所有者配置只读同步通知。续期暂时失败时，保留仍有效的旧订阅期限/身份，避免提前丢弃合法回调。
 
 这些端点已实现并通过合成通知/签名及请求契约验证；本任务没有配置公网 Pub/Sub、在真实 Microsoft 租户创建订阅或触发真实邮件推送。[Gmail 推送指南](https://developers.google.com/workspace/gmail/api/guides/push)、[Pub/Sub JWT 校验](https://docs.cloud.google.com/pubsub/docs/authenticate-push-subscriptions)、[Graph 回调协议](https://learn.microsoft.com/en-us/graph/change-notifications-delivery-webhooks)。
 

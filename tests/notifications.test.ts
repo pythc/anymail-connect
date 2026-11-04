@@ -490,3 +490,227 @@ test("bounded IDLE pool: cross-worker lease, revocation and shutdown", async (t)
   await until(() => two.size === 1 && provider.watching === 1);
   assert.equal(provider.watching, 1);
 });
+test("push management scope, read-only mailbox and failed renewal continuity", async (t) => {
+  const provider = new PushLab(),
+    f = await fixture(provider),
+    c = settings();
+  const push = new PushService(f.service, c);
+  const read = { ...alice, scopes: ["mail.read"] };
+  const server = await app(f.service, c, async () => ({
+    principal: read,
+    expiresAt: Date.now() + 300_000,
+  }));
+  t.after(async () => {
+    await server.close();
+    await f.close();
+  });
+  const headers = {
+    host: "anymail.invalid",
+    authorization: "Bearer read-only-lab",
+  };
+  const post = (action: string, id = f.account.id) =>
+    server.inject({
+      method: "POST",
+      url: "/api/push",
+      headers,
+      payload: { account_id: id, action },
+    });
+  await t.test(
+    "mail.read cannot enable or disable connector push settings",
+    async () => {
+      assert.equal((await post("enable")).statusCode, 403);
+      assert.equal(provider.subscriptions.length, 0);
+      assert.equal(
+        (await f.db.query("SELECT id FROM documents WHERE kind='push'")).rows
+          .length,
+        0,
+      );
+      await push.enable(alice, f.account.id);
+      assert.equal((await post("disable")).statusCode, 403);
+      assert.equal(provider.stopped.length, 0);
+      assert.equal((await push.status(read, f.account.id)).enabled, true);
+      assert.equal(
+        (await server.inject({ url: "/api/push/" + f.account.id, headers }))
+          .statusCode,
+        200,
+      );
+      await assert.rejects(
+        push.enable(read, f.account.id),
+        /PERMISSION_DENIED/,
+      );
+      await assert.rejects(
+        push.disable(read, f.account.id),
+        /PERMISSION_DENIED/,
+      );
+    },
+  );
+  await t.test("mail.write owner manages a read-only mailbox", async () => {
+    const a = await f.service.connect(
+      alice,
+      {
+        provider: "graph",
+        email: "test@example.com",
+        oauth: { accessToken: "lab" },
+      },
+      false,
+      false,
+    );
+    assert.equal((await f.service.account(alice, a.id)).writable, false);
+    assert.equal((await push.enable(alice, a.id)).status, "active");
+    assert.equal((await push.disable(alice, a.id)).status, "disabled");
+  });
+  for (const kind of ["gmail", "graph"] as const)
+    await t.test(
+      kind + " callbacks survive transient renewal failure",
+      async () => {
+        const a =
+          kind === "gmail"
+            ? f.account
+            : await f.service.connect(
+                alice,
+                {
+                  provider: kind,
+                  email: "test@example.com",
+                  oauth: { accessToken: "lab" },
+                },
+                true,
+                true,
+              );
+        await push.enable(alice, a.id);
+        const before = (
+          await f.db.query<any>(
+            "SELECT data FROM documents WHERE kind='push' AND account_id=$1",
+            [a.id],
+          )
+        ).rows[0]!.data;
+        const state = provider.subscriptions.at(-1)!.clientState;
+        await f.db.query(
+          "UPDATE documents SET data=jsonb_set(data,'{renewAt}',$2::jsonb) WHERE kind='push' AND account_id=$1",
+          [a.id, JSON.stringify(new Date(0).toISOString())],
+        );
+        const subscribe = provider.subscribe;
+        provider.subscribe = async () => {
+          throw Error("transient renewal failure");
+        };
+        try {
+          await assert.rejects(
+            push.enable(alice, a.id),
+            /transient renewal failure/,
+          );
+        } finally {
+          provider.subscribe = subscribe;
+        }
+        const after = (
+          await f.db.query<any>(
+            "SELECT data FROM documents WHERE kind='push' AND account_id=$1",
+            [a.id],
+          )
+        ).rows[0]!.data;
+        assert.equal(after.status, "uncertain");
+        for (const field of ["expiresAt", "providerId", "sealed"])
+          assert.equal(after[field], before[field]);
+        await f.db.query("DELETE FROM change_requests");
+        if (kind === "gmail")
+          await push.gmail({
+            message: {
+              data: Buffer.from(
+                JSON.stringify({
+                  emailAddress: "test@example.com",
+                  historyId: "123",
+                }),
+              ).toString("base64"),
+            },
+          });
+        else
+          await push.graph({
+            value: [{ subscriptionId: before.providerId, clientState: state }],
+          });
+        assert.equal(
+          (
+            await f.db.query(
+              "SELECT id FROM change_requests WHERE account_id=$1",
+              [a.id],
+            )
+          ).rows.length,
+          1,
+        );
+      },
+    );
+});
+test("IDLE event bursts bound writes and preserve a later signal", async (t) => {
+  let change: (() => void) | undefined;
+  class Events extends PushLab {
+    override async watch(
+      folder: string,
+      changed: () => void,
+      signal: AbortSignal,
+    ) {
+      change = changed;
+      return super.watch(folder, changed, signal);
+    }
+  }
+  const f = await fixture(new Events());
+  await f.service.connect(
+    alice,
+    {
+      provider: "imap",
+      email: "test@example.com",
+      username: "lab",
+      password: "lab",
+      imap: { host: "lab.invalid", port: 993, secure: true },
+      smtp: { host: "lab.invalid", port: 465, secure: true },
+    },
+    false,
+    false,
+  );
+  const queue = new ChangeQueue(f.service),
+    enqueue = queue.enqueue.bind(queue);
+  let hold = false,
+    active = 0,
+    max = 0,
+    writes = 0,
+    release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  queue.enqueue = async (a) => {
+    if (!hold) return enqueue(a);
+    active++;
+    writes++;
+    max = Math.max(max, active);
+    try {
+      await gate;
+      await enqueue(a);
+    } finally {
+      active--;
+    }
+  };
+  const pool = new IdlePool(f.service, 1, queue);
+  t.after(async () => {
+    release();
+    await pool.close();
+    await f.close();
+  });
+  await pool.tick();
+  await until(() => !!change);
+  hold = true;
+  for (let i = 0; i < 200; i++) change!();
+  await until(() => writes === 1);
+  for (let i = 0; i < 200; i++) change!();
+  await delay(550);
+  assert.equal(writes, 1);
+  release();
+  await until(() => writes === 2);
+  await until(() => active === 0);
+  assert.equal(max, 1);
+  assert.equal(
+    (await f.db.query("SELECT id FROM change_requests")).rows.length,
+    1,
+  );
+  change!();
+  await pool.close();
+  const before = writes;
+  change!();
+  await delay(550);
+  assert.equal(writes, before);
+});

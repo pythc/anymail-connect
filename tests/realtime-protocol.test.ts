@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createServer, type TLSSocket } from "node:tls";
 import { setTimeout as delay } from "node:timers/promises";
 import imapkit from "imapkit";
 import { SMTPServer } from "smtp-server";
@@ -156,5 +157,79 @@ test(
         }
       },
     );
+  },
+);
+test(
+  "IDLE setup abort and absolute handshake deadline",
+  { timeout: 25_000 },
+  async (t) => {
+    const sockets = new Set<TLSSocket>();
+    let capabilities = 0;
+    const server = createServer(
+      {
+        key: readFileSync(".test-certs/server.key"),
+        cert: readFileSync(".test-certs/ca.crt"),
+      },
+      (socket) => {
+        sockets.add(socket);
+        socket.on("error", () => {});
+        socket.on("close", () => sockets.delete(socket));
+        socket.write("* OK ready\r\n");
+        socket.on("data", (data) => {
+          if (data.toString().includes("CAPABILITY")) capabilities++;
+          // Deliberately never finish initial capability negotiation.
+        });
+      },
+    );
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    t.after(async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((r) => server.close(() => r()));
+    });
+    const port = (server.address() as import("node:net").AddressInfo).port;
+    const provider = new ImapProvider(
+      {
+        provider: "imap",
+        email: "test@example.com",
+        username: "synthetic",
+        password: "synthetic",
+        imap: { host: "127.0.0.1", port, secure: true },
+        smtp: { host: "127.0.0.1", port: 465, secure: true },
+        saveSentCopy: false,
+      },
+      { privateEndpoints: [`127.0.0.1:${port}`] },
+    );
+    await t.test(
+      "abort while CAPABILITY is pending closes and settles",
+      async () => {
+        const controller = new AbortController();
+        const watch = provider.watch("INBOX", () => {}, controller.signal);
+        try {
+          await until(() => capabilities === 1);
+          controller.abort();
+          await Promise.race([
+            watch,
+            delay(1000).then(() => {
+              throw Error("Abort did not settle setup");
+            }),
+          ]);
+          await until(() => sockets.size === 0);
+        } finally {
+          controller.abort();
+          await watch;
+        }
+      },
+    );
+    await t.test("post-greeting stall hits total setup deadline", async () => {
+      const controller = new AbortController();
+      const before = Date.now();
+      const watch = provider.watch("INBOX", () => {}, controller.signal);
+      const rejected = assert.rejects(watch, { name: "TimeoutError" });
+      await until(() => capabilities === 2);
+      await rejected;
+      const elapsed = Date.now() - before;
+      assert.ok(elapsed >= 14_000 && elapsed < 20_000);
+      await until(() => sockets.size === 0);
+    });
   },
 );

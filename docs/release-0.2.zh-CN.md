@@ -19,14 +19,16 @@ schema v2 在事务内增加队列表与索引，保留 v1 的凭证、草稿和
 
 ## 当前证据
 
-- 本机 `npm run check` 93 项通过；同一套测试在独立 PostgreSQL 17 上 93 项通过，0 失败/跳过。
+- 本机 `npm run check` 102 项通过；同一套测试在独立 PostgreSQL 17 上 102 项通过，0 失败/跳过。
 - 实际 STARTTLS 的 IMAP/SMTP 登录与发送；没有 STARTTLS 时拒绝登录、拒绝发送；IDLE 收到真实协议服务器 EXISTS 并在 abort 后关闭。
 - Pub/Sub 本地 RSA 签名正反例、Graph clientState/订阅映射、重复通知、同步期间新事件、批量文件夹/租户边界、过期续期 lease、撤权及停机。
 - Graph 四个云环境的 OAuth/刷新/API 契约与状态；JMAP 跨源精确白名单拒绝与放行契约。
 - v1→v2 重跑迁移，旧凭证/草稿/发送台账保留，更高 schema 拒绝启动。
 - 桌面/移动浏览器交互、推送状态、JMAP 合成连接与令牌表单清理通过。
 
-Security diff scan、独立复核、最终镜像和远程 CI 记录在本轮交付前补充。本节不会把旧版扫描当作新增公开 webhook 的安全审查。
+新增公开 webhook 等改动已完成独立复核和 Security diff scan：冻结提交 `149a4a1` 发现 3 个低风险问题，随后完成修复、定向复审和回归；详见 [审查记录](review-0.2.zh-CN.md)。握手中途取消、实际 15 秒期限、400 个事件期间最多一笔写入、只读令牌拒绝启停、只读邮箱配置及失败续期回调连续性均有新增测试。正式扫描针对修复前冻结版本；修复后未声称执行第二次完整扫描。
+
+最终源码的本地镜像 `anymail-connect:validation-0.2` 构建成功，image ID 为 `sha256:3f2e35cb205550b74beac0d3c1f059f9f4c5ff096455fc136eae7fc98d5f6484`。在隔离 PostgreSQL 测试库启动生产 worker，无真实账号、IDLE=0，SIGTERM 后退出码 0；实际 Keycloak 登录检查通过。远程 CI 与推送回执待核验；本地镜像没有发布或部署到公网。
 
 ## 仍需验收
 

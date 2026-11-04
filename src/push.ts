@@ -1,6 +1,11 @@
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { z } from "zod";
-import { MailError, type Principal, type Account } from "./domain.js";
+import {
+  MailError,
+  requireScope,
+  type Principal,
+  type Account,
+} from "./domain.js";
 import { opaque, secretEqual } from "./crypto.js";
 import { stableId } from "./sync.js";
 import { ChangeQueue } from "./change-queue.js";
@@ -60,7 +65,7 @@ const principal = (a: Account): Principal => ({
   tenant: a.tenant,
   subject: a.owner,
   client: "push-worker",
-  scopes: ["mail.read"],
+  scopes: ["mail.read", "mail.write"],
 });
 export async function notificationStatus(
   s: MailService,
@@ -141,6 +146,7 @@ export class PushService {
     return notificationStatus(this.s, p, id);
   }
   async enable(p: Principal, id: string) {
+    requireScope(p, "mail.write");
     await this.s.account(p, id);
     return this.locked(id, async (lease) => {
       const a = await this.s.account(p, id);
@@ -172,6 +178,7 @@ export class PushService {
         status: "starting",
         sealed: state,
         providerId: r?.enabled ? r.providerId : undefined,
+        expiresAt: r?.enabled ? r.expiresAt : undefined,
         renewAt: new Date().toISOString(),
       };
       await this.save(p, a, r, lease);
@@ -226,6 +233,7 @@ export class PushService {
     });
   }
   async disable(p: Principal, id: string) {
+    requireScope(p, "mail.write");
     await this.s.account(p, id);
     return this.locked(id, async (lease) => {
       const a = await this.s.account(p, id),
