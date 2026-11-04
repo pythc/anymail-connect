@@ -28,7 +28,9 @@ schema v2 在事务内增加队列表与索引，保留 v1 的凭证、草稿和
 
 新增公开 webhook 等改动已完成独立复核和 Security diff scan：冻结提交 `149a4a1` 发现 3 个低风险问题，随后完成修复、定向复审和回归；详见 [审查记录](review-0.2.zh-CN.md)。握手中途取消、实际 15 秒期限、400 个事件期间最多一笔写入、只读令牌拒绝启停、只读邮箱配置及失败续期回调连续性均有新增测试。正式扫描针对修复前冻结版本；修复后未声称执行第二次完整扫描。
 
-最终源码的本地镜像 `anymail-connect:validation-0.2` 构建成功，image ID 为 `sha256:3f2e35cb205550b74beac0d3c1f059f9f4c5ff096455fc136eae7fc98d5f6484`。在隔离 PostgreSQL 测试库启动生产 worker，无真实账号、IDLE=0，SIGTERM 后退出码 0；实际 Keycloak 登录检查通过。远程 CI 与推送回执待核验；本地镜像没有发布或部署到公网。
+最终源码的本地镜像 `anymail-connect:validation-0.2` 构建成功，image ID 为 `sha256:3f2e35cb205550b74beac0d3c1f059f9f4c5ff096455fc136eae7fc98d5f6484`。在隔离 PostgreSQL 测试库启动生产 worker，无真实账号、IDLE=0，SIGTERM 后退出码 0；实际 Keycloak 登录检查通过。本地镜像没有发布或部署到公网。
+
+功能提交 `149a4a1` 与修复提交 `1eac64fba3e49f17e8b3faec0ef01fd9f3739613` 已推送公开 [pythc/anymail-connect](https://github.com/pythc/anymail-connect)，远程 main 回读一致。[CI run 41748193489](https://github.com/pythc/anymail-connect/actions/runs/41748193489) 的 `check` 与 `browser` 均为 success：Linux 上 PGlite/PostgreSQL 各 102 项、构建、格式、依赖审计（0 漏洞）、桌面/移动浏览器与实际 Keycloak 登录全部通过。后续仅回执文档提交的精确 SHA 与状态见 Actions，不把代码提交回执冒充后续提交的结果。
 
 ## 仍需验收
 

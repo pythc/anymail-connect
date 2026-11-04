@@ -22,7 +22,7 @@ Codex Security diff scan `d5fb81ed-b648-4cb1-9c5e-33fbd74bc5df` 已完成并封�
 - 实际 Keycloak 26.8.1 发现/授权码/PKCE/nonce/state/JWKS、租户/客户端/scopes、cookie 和 CSRF 退出通过。
 - 最终镜像在独立 PostgreSQL 测试库启动生产编译版 worker（无真实账号、IDLE=0），确认 schema 1/2，SIGTERM 后退出码 0；测试容器已删除。没有部署到公网。
 - 新版凭证/草稿/发送台账的 v1→v2 迁移及重跑、未来 schema 拒绝、过期租约写入拒绝、撤权/停机与同步期间新事件保留。
-- 本机 npm audit 的最终重试因 npm registry TLS 连接中断未返回结果；不记为 0 漏洞。远程 CI 审计结果待回读。
+- 本机 npm audit 的最终重试因 npm registry TLS 连接中断未返回结果；不记为本机成功。[远程 CI 41748193489](https://github.com/pythc/anymail-connect/actions/runs/41748193489) 在代码提交 `1eac64fba3e49f17e8b3faec0ef01fd9f3739613` 上全部成功，审计日志明确返回 `found 0 vulnerabilities`；Linux 的 PGlite/PostgreSQL 各 102 项与浏览器/Keycloak 也全部成功。
 
 真实邮箱、云端推送/IAM/各 Microsoft 云租户、公网部署、ChatGPT 安装、负载与灾难恢复尚未验收。其余未实现功能保留在 [TODO](../TODO.md)。
 
