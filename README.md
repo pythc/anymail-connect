@@ -66,3 +66,5 @@ flowchart TD
 尚未选择项目许可证。公开 GitHub 仓库不等于已授予开源再分发许可。项目拥有者仍需选择项目许可证；第三方组件继续遵循各自许可证。
 
 本项目与 OpenAI、Google、Microsoft 及各邮箱服务商无隶属关系。
+
+0.3 的开发与证据：[实现/限制](docs/release-0.3.zh-CN.md)、[审查修复](docs/review-0.3.zh-CN.md)、[企业/个人运维配置](docs/operations-0.3.zh-CN.md)。

@@ -729,3 +729,42 @@ test("continuous native draft sync: pull/push/conflicts and unknown results", as
     /HOST_FILE_ORIGIN_DENIED/,
   );
 });
+
+test("native conflict inspection refreshes versions without clearing unknown or writing", async (t) => {
+  const provider = new NativeLab(),
+    f = await fixture(provider);
+  t.after(f.close);
+  const native = new NativeDrafts(f.service),
+    linked = await native.bind(alice, f.account.id, "native", true);
+  await f.service.updateDraft(alice, f.account.id, linked.draft.id, 1, {
+    ...linked.draft.content,
+    text: "local-change",
+  });
+  provider.fail = true;
+  assert.equal(
+    (await native.sync(alice, f.account.id, linked.binding.id)).status,
+    "unknown",
+  );
+  provider.remote.text = "later-remote";
+  provider.version++;
+  const before = provider.writes,
+    current = await native.inspect(alice, f.account.id, linked.binding.id);
+  assert.equal(current.binding.status, "unknown");
+  assert.equal(current.remote.version, String(provider.version));
+  assert.equal(current.remote.content.text, "later-remote");
+  assert.equal(provider.writes, before);
+  await native.sync(
+    alice,
+    f.account.id,
+    linked.binding.id,
+    "pull",
+    current.draft.revision,
+    current.remote.version,
+  );
+  assert.equal(
+    (await f.store.get<any>(alice, f.account.id, "draft", linked.draft.id))
+      .content.text,
+    "later-remote",
+  );
+  assert.equal(provider.writes, before);
+});

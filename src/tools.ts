@@ -28,7 +28,7 @@ const mutation = z
       "labels",
       "categories",
     ]),
-    destination: z.string().max(1000).optional(),
+    destination: identifier.optional(),
     add: z.array(z.string().max(500)).max(50).optional(),
     remove: z.array(z.string().max(500)).max(50).optional(),
   })

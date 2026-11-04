@@ -97,6 +97,14 @@ export function enhancements(s: MailService): Tool[] {
     true,
   );
   add(
+    "native_drafts_inspect",
+    "Read current local and remote draft snapshots/versions without writing or clearing conflict/unknown. Inspect before choosing explicit resolution.",
+    z.object({ account_id: account, binding_id: account }).strict(),
+    true,
+    (p, i) => native.inspect(p, i.account_id, i.binding_id),
+    true,
+  );
+  add(
     "native_drafts_sync",
     "Reconcile linked draft; both-side changes stop as conflict. Explicit resolution requires pull/push and current application revision plus remote version. Do not blindly retry unknown results.",
     z

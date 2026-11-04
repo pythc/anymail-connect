@@ -206,7 +206,7 @@ export const searchSchema = z
     after: z.string().date().optional(),
     before: z.string().date().optional(),
     unread: z.boolean().optional(),
-    folder: z.string().max(500).optional(),
+    folder: z.string().max(4000).optional(),
     cursor: z.string().max(10000).optional(),
     limit: z.number().int().min(1).max(50).default(20),
   })

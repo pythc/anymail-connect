@@ -2,6 +2,7 @@ import {
   createCipheriv,
   createDecipheriv,
   createHash,
+  createHmac,
   randomBytes,
   timingSafeEqual,
 } from "node:crypto";
@@ -66,6 +67,17 @@ export class Vault {
       } catch {}
     }
     throw new MailError("CREDENTIAL_DECRYPTION_FAILED", 500);
+  }
+  authenticationKeys(context: string) {
+    // Domain-separated MAC keys; previous keys keep issued handles valid during rotation.
+    return [
+      this.key,
+      ...[...this.keys.values()].filter((k) => k !== this.key),
+    ].map((k) =>
+      createHmac("sha256", k)
+        .update("anymail-authentication-v1\0" + context)
+        .digest(),
+    );
   }
   current(value: string) {
     return value.startsWith(`v2.${this.keyId}.`);

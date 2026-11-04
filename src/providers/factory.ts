@@ -118,7 +118,16 @@ export function makeFactory(
     if (connection.provider === "imap")
       return configured(new ImapProvider(connection, policy));
     if (connection.provider === "ews")
-      return configured(new EwsProvider(connection, http, ewsOrigins));
+      return configured(
+        new EwsProvider(
+          connection,
+          http,
+          ewsOrigins,
+          vault.authenticationKeys(
+            `ews:${account.tenant}:${account.owner}:${account.id}`,
+          ),
+        ),
+      );
     return configured(new JmapProvider(connection, http, jmapOrigins));
   };
 }

@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { simpleParser } from "mailparser";
 import {
   baseCapabilities,
@@ -15,28 +16,30 @@ import { array, parseXml, value, xml } from "./xml.js";
 import { cursorEncode, cursorDecode } from "./rest.js";
 import { compose } from "./gmail.js";
 type Config = Extract<Connection, { provider: "ews" }>;
-const itemId = (item: any) =>
-  cursorEncode({
-    id: item.ItemId?.["@_Id"],
-    change: item.ItemId?.["@_ChangeKey"],
-  });
-function locator(id: string) {
-  const l = cursorDecode<{ id: string; change?: string }>(id);
-  if (!l?.id || l.id.length > 2000 || (l.change && l.change.length > 2000))
-    throw new MailError("INVALID_MESSAGE_ID");
-  return l;
-}
-const item = (id: string) => {
-  const l = locator(id);
-  return `<t:ItemId Id="${xml(l.id)}"${l.change ? ` ChangeKey="${xml(l.change)}"` : ""}/>`;
+type Handle = {
+  kind: "message" | "contact" | "folder" | "attachment";
+  id: string;
+  change?: string;
+  parent?: string;
 };
+const mailRoles = [
+  "inbox",
+  "sentitems",
+  "drafts",
+  "deleteditems",
+  "archiveinbox",
+  "junkemail",
+];
 export class EwsProvider implements MailProvider {
   capabilities = { ...baseCapabilities, contacts: "native" as const };
   constructor(
     private c: Config,
     private http: HttpRequest,
     origins: string[],
+    private handleKeys: readonly Buffer[],
   ) {
+    if (!handleKeys.length || handleKeys.some((k) => k.length !== 32))
+      throw new Error("EWS_HANDLE_KEYS_REQUIRED");
     const u = new URL(c.url);
     if (
       u.protocol !== "https:" ||
@@ -47,6 +50,78 @@ export class EwsProvider implements MailProvider {
       !origins.includes(u.origin)
     )
       throw new MailError("EWS_ORIGIN_DENIED", 403);
+  }
+  // EWS IDs carry implicit mailbox authority. Only scoped response-derived,
+  // authenticated typed handles may cross the AnyMail API boundary.
+  private mac(payload: string, key = this.handleKeys[0]!) {
+    return createHmac("sha256", key)
+      .update(
+        JSON.stringify([
+          "anymail-ews-v1",
+          this.c.url,
+          this.c.email.toLowerCase(),
+          this.c.auth.type,
+          this.c.auth.type === "basic" ? this.c.auth.username : "",
+        ]),
+      )
+      .update("\0" + payload)
+      .digest();
+  }
+  private handle(h: Handle) {
+    if (typeof h.id !== "string" || !h.id || h.id.length > 2000)
+      throw new MailError("INVALID_PROVIDER_RESPONSE", 502);
+    const payload = cursorEncode(h),
+      result =
+        "ews1." + payload + "." + this.mac(payload).toString("base64url");
+    if (result.length > 4000)
+      throw new MailError("INVALID_PROVIDER_RESPONSE", 502);
+    return result;
+  }
+  private locator(token: string, kind: Handle["kind"]) {
+    const [prefix, payload, signature, extra] = token.split(".");
+    if (
+      token.length > 4000 ||
+      prefix !== "ews1" ||
+      !payload ||
+      !signature ||
+      extra !== undefined
+    )
+      throw new MailError("INVALID_EWS_HANDLE");
+    const supplied = Buffer.from(signature, "base64url");
+    if (
+      supplied.length !== 32 ||
+      !this.handleKeys.some((key) =>
+        timingSafeEqual(supplied, this.mac(payload, key)),
+      )
+    )
+      throw new MailError("INVALID_EWS_HANDLE");
+    const h = cursorDecode<Handle>(payload);
+    if (
+      h.kind !== kind ||
+      typeof h.id !== "string" ||
+      !h.id ||
+      h.id.length > 2000 ||
+      (h.change !== undefined &&
+        (typeof h.change !== "string" || h.change.length > 2000))
+    )
+      throw new MailError("INVALID_EWS_HANDLE");
+    return h;
+  }
+  private itemId(m: any, kind: "message" | "contact") {
+    return this.handle({
+      kind,
+      id: m.ItemId?.["@_Id"],
+      change: m.ItemId?.["@_ChangeKey"],
+    });
+  }
+  private item(token: string, kind: "message" | "contact") {
+    const h = this.locator(token, kind);
+    return `<t:ItemId Id="${xml(h.id)}"${h.change ? ` ChangeKey="${xml(h.change)}"` : ""}/>`;
+  }
+  private mailFolder(id = "inbox") {
+    return mailRoles.includes(id)
+      ? this.folder(id)
+      : `<t:FolderId Id="${xml(this.locator(id, "folder").id)}"/>`;
   }
   private folder(id = "inbox") {
     return [
@@ -60,7 +135,7 @@ export class EwsProvider implements MailProvider {
       "junkemail",
     ].includes(id)
       ? `<t:DistinguishedFolderId Id="${xml(id)}"><t:Mailbox><t:EmailAddress>${xml(this.c.email)}</t:EmailAddress></t:Mailbox></t:DistinguishedFolderId>`
-      : `<t:FolderId Id="${xml(id)}"/>`;
+      : `<t:FolderId Id="${xml(this.locator(id, "folder").id)}"/>`;
   }
   private async call(op: string, body: string, attributes = "") {
     const r = await this.http(this.c.url, {
@@ -120,7 +195,7 @@ export class EwsProvider implements MailProvider {
     const addr = (v: any) =>
       array<any>(v?.Mailbox).map((x) => value(x.EmailAddress));
     return {
-      id: itemId(m),
+      id: this.itemId(m, "message"),
       subject: value(m.Subject),
       from: value(m.From?.Mailbox?.EmailAddress),
       to: addr(m.ToRecipients),
@@ -131,7 +206,11 @@ export class EwsProvider implements MailProvider {
       read: value(m.IsRead) === "true",
       messageId: value(m.InternetMessageId) || undefined,
       attachments: array<any>(m.Attachments?.FileAttachment).map((a) => ({
-        id: a.AttachmentId?.["@_Id"],
+        id: this.handle({
+          kind: "attachment",
+          id: a.AttachmentId?.["@_Id"],
+          parent: m.ItemId?.["@_Id"],
+        }),
         name: value(a.Name),
         type: value(a.ContentType) || "application/octet-stream",
         size: Number(value(a.Size)) || 0,
@@ -180,7 +259,7 @@ export class EwsProvider implements MailProvider {
       throw new MailError("EWS_QUERY_FILTER_COMBINATION_UNSUPPORTED", 422);
     const r = await this.call(
       "FindItem",
-      `<m:ItemShape><t:BaseShape>AllProperties</t:BaseShape></m:ItemShape><m:IndexedPageItemView MaxEntriesReturned="${s.limit}" Offset="${offset}" BasePoint="Beginning"/>${filters.length ? `<m:Restriction>${filters.length > 1 ? "<t:And>" : ""}${filters.join("")}${filters.length > 1 ? "</t:And>" : ""}</m:Restriction>` : ""}<m:SortOrder><t:FieldOrder Order="Descending"><t:FieldURI FieldURI="item:DateTimeReceived"/></t:FieldOrder></m:SortOrder><m:ParentFolderIds>${this.folder(s.folder)}</m:ParentFolderIds>${s.query ? `<m:QueryString>${xml(s.query)}</m:QueryString>` : ""}`,
+      `<m:ItemShape><t:BaseShape>AllProperties</t:BaseShape></m:ItemShape><m:IndexedPageItemView MaxEntriesReturned="${s.limit}" Offset="${offset}" BasePoint="Beginning"/>${filters.length ? `<m:Restriction>${filters.length > 1 ? "<t:And>" : ""}${filters.join("")}${filters.length > 1 ? "</t:And>" : ""}</m:Restriction>` : ""}<m:SortOrder><t:FieldOrder Order="Descending"><t:FieldURI FieldURI="item:DateTimeReceived"/></t:FieldOrder></m:SortOrder><m:ParentFolderIds>${this.mailFolder(s.folder)}</m:ParentFolderIds>${s.query ? `<m:QueryString>${xml(s.query)}</m:QueryString>` : ""}`,
       ' Traversal="Shallow"',
     );
     const root = r.RootFolder,
@@ -197,7 +276,7 @@ export class EwsProvider implements MailProvider {
   async get(id: string) {
     const r = await this.call(
         "GetItem",
-        `<m:ItemShape><t:BaseShape>AllProperties</t:BaseShape><t:IncludeMimeContent>true</t:IncludeMimeContent><t:BodyType>Text</t:BodyType></m:ItemShape><m:ItemIds>${item(id)}</m:ItemIds>`,
+        `<m:ItemShape><t:BaseShape>AllProperties</t:BaseShape><t:IncludeMimeContent>true</t:IncludeMimeContent><t:BodyType>Text</t:BodyType></m:ItemShape><m:ItemIds>${this.item(id, "message")}</m:ItemIds>`,
       ),
       m = array<any>(r.Items?.Message)[0];
     if (!m) throw new MailError("NOT_FOUND", 404);
@@ -213,15 +292,18 @@ export class EwsProvider implements MailProvider {
     return result;
   }
   async attachment(messageId: string, attachmentId: string) {
+    const rawAttachment = this.locator(attachmentId, "attachment"),
+      parent = this.locator(messageId, "message").id;
     if (
+      rawAttachment.parent !== parent ||
       !(await this.get(messageId)).attachments.some(
-        (a) => a.id === attachmentId,
+        (a) => this.locator(a.id, "attachment").id === rawAttachment.id,
       )
     )
       throw new MailError("NOT_FOUND", 404);
     const r = await this.call(
         "GetAttachment",
-        `<m:AttachmentShape/><m:AttachmentIds><t:AttachmentId Id="${xml(attachmentId)}"/></m:AttachmentIds>`,
+        `<m:AttachmentShape/><m:AttachmentIds><t:AttachmentId Id="${xml(rawAttachment.id)}"/></m:AttachmentIds>`,
       ),
       a = array<any>(r.Attachments?.FileAttachment)[0];
     if (!a) throw new MailError("NOT_FOUND", 404);
@@ -234,22 +316,27 @@ export class EwsProvider implements MailProvider {
   async folders() {
     const r = await this.call(
       "FindFolder",
-      `<m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape><m:IndexedPageFolderView MaxEntriesReturned="100" Offset="0" BasePoint="Beginning"/><m:ParentFolderIds>${this.folder("msgfolderroot")}</m:ParentFolderIds>`,
+      `<m:FolderShape><t:BaseShape>Default</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI="folder:FolderClass"/></t:AdditionalProperties></m:FolderShape><m:IndexedPageFolderView MaxEntriesReturned="100" Offset="0" BasePoint="Beginning"/><m:ParentFolderIds>${this.folder("msgfolderroot")}</m:ParentFolderIds>`,
       ' Traversal="Shallow"',
     );
-    return array<any>(r.RootFolder?.Folders?.Folder).map((f) => ({
-      id: f.FolderId?.["@_Id"],
-      name: value(f.DisplayName),
-      count: Number(value(f.TotalCount)) || 0,
-    }));
+    return array<any>(r.RootFolder?.Folders?.Folder)
+      .filter((f) => /^IPF\.Note(?:\.|$)/.test(value(f.FolderClass)))
+      .map((f) => ({
+        id: this.handle({ kind: "folder", id: f.FolderId?.["@_Id"] }),
+        name: value(f.DisplayName),
+        count: Number(value(f.TotalCount)) || 0,
+      }));
   }
   async mutate(id: string, m: Mutation) {
-    if (["read", "unread"].includes(m.action) && !locator(id).change)
+    if (
+      ["read", "unread"].includes(m.action) &&
+      !this.locator(id, "message").change
+    )
       throw new MailError("CHANGE_KEY_REQUIRED");
     if (m.action === "trash") {
       await this.call(
         "DeleteItem",
-        `<m:ItemIds>${item(id)}</m:ItemIds>`,
+        `<m:ItemIds>${this.item(id, "message")}</m:ItemIds>`,
         ' DeleteType="MoveToDeletedItems"',
       );
       return { trashed: true };
@@ -257,12 +344,12 @@ export class EwsProvider implements MailProvider {
     if (m.action === "move" && m.destination)
       return this.call(
         "MoveItem",
-        `<m:ToFolderId>${this.folder(m.destination)}</m:ToFolderId><m:ItemIds>${item(id)}</m:ItemIds>`,
+        `<m:ToFolderId>${this.mailFolder(m.destination)}</m:ToFolderId><m:ItemIds>${this.item(id, "message")}</m:ItemIds>`,
       );
     if (m.action === "read" || m.action === "unread")
       return this.call(
         "UpdateItem",
-        `<m:ItemChanges><t:ItemChange>${item(id)}<t:Updates><t:SetItemField><t:FieldURI FieldURI="message:IsRead"/><t:Message><t:IsRead>${m.action === "read"}</t:IsRead></t:Message></t:SetItemField></t:Updates></t:ItemChange></m:ItemChanges>`,
+        `<m:ItemChanges><t:ItemChange>${this.item(id, "message")}<t:Updates><t:SetItemField><t:FieldURI FieldURI="message:IsRead"/><t:Message><t:IsRead>${m.action === "read"}</t:IsRead></t:Message></t:SetItemField></t:Updates></t:ItemChange></m:ItemChanges>`,
         ' ConflictResolution="NeverOverwrite" MessageDisposition="SaveOnly"',
       );
     throw new MailError("UNSUPPORTED_CAPABILITY", 422);
@@ -281,7 +368,7 @@ export class EwsProvider implements MailProvider {
   }
   async extension(op: string, i: any) {
     const contact = (c: any) => ({
-      id: itemId(c),
+      id: this.itemId(c, "contact"),
       displayName: value(c.DisplayName),
       givenName: value(c.GivenName),
       surname: value(c.Surname),
@@ -311,7 +398,7 @@ export class EwsProvider implements MailProvider {
     if (op === "contacts.get") {
       const r = await this.call(
           "GetItem",
-          `<m:ItemShape><t:BaseShape>AllProperties</t:BaseShape></m:ItemShape><m:ItemIds>${item(String(i.id))}</m:ItemIds>`,
+          `<m:ItemShape><t:BaseShape>AllProperties</t:BaseShape></m:ItemShape><m:ItemIds>${this.item(String(i.id), "contact")}</m:ItemIds>`,
         ),
         c = array<any>(r.Items?.Contact)[0];
       if (!c) throw new MailError("NOT_FOUND", 404);
@@ -320,7 +407,7 @@ export class EwsProvider implements MailProvider {
     if (op === "contacts.delete") {
       await this.call(
         "DeleteItem",
-        `<m:ItemIds>${item(String(i.id))}</m:ItemIds>`,
+        `<m:ItemIds>${this.item(String(i.id), "contact")}</m:ItemIds>`,
         ' DeleteType="MoveToDeletedItems"',
       );
       return { deleted: true };
@@ -347,12 +434,12 @@ export class EwsProvider implements MailProvider {
       if (op === "contacts.create") {
         const r = await this.call(
             "CreateItem",
-            `<m:SavedItemFolderId>${this.folder("contacts")}</m:SavedItemFolderId><m:Items><t:Contact>${Object.values(props).join("")}</t:Contact></m:Items>`,
+            `<m:SavedItemFolderId>${this.folder("contacts")}</m:SavedItemFolderId><m:Items><t:Contact>${["DisplayName", "GivenName", "EmailAddresses", "PhoneNumbers", "Surname"].map((k) => props[k] ?? "").join("")}</t:Contact></m:Items>`,
           ),
           result = array<any>(r.Items?.Contact)[0];
         return result ? contact(result) : { created: true };
       }
-      if (!locator(String(i.id)).change)
+      if (!this.locator(String(i.id), "contact").change)
         throw new MailError("CHANGE_KEY_REQUIRED");
       const updates = Object.entries(props)
         .filter(([key]) => !["EmailAddresses", "PhoneNumbers"].includes(key))
@@ -363,12 +450,13 @@ export class EwsProvider implements MailProvider {
       if (c.emailAddresses || c.businessPhones) {
         const previous = await this.call(
             "GetItem",
-            `<m:ItemShape><t:BaseShape>AllProperties</t:BaseShape></m:ItemShape><m:ItemIds>${item(String(i.id))}</m:ItemIds>`,
+            `<m:ItemShape><t:BaseShape>AllProperties</t:BaseShape></m:ItemShape><m:ItemIds>${this.item(String(i.id), "contact")}</m:ItemIds>`,
           ),
           old = array<any>(previous.Items?.Contact)[0];
         if (
           !old ||
-          old.ItemId?.["@_ChangeKey"] !== locator(String(i.id)).change
+          old.ItemId?.["@_ChangeKey"] !==
+            this.locator(String(i.id), "contact").change
         )
           throw new MailError("REVISION_CONFLICT", 409);
         for (const [prop, field, entries] of [
@@ -400,7 +488,7 @@ export class EwsProvider implements MailProvider {
       if (!updates.length) throw new MailError("EMPTY_CONTACT_UPDATE");
       return this.call(
         "UpdateItem",
-        `<m:ItemChanges><t:ItemChange>${item(String(i.id))}<t:Updates>${updates.join("")}</t:Updates></t:ItemChange></m:ItemChanges>`,
+        `<m:ItemChanges><t:ItemChange>${this.item(String(i.id), "contact")}<t:Updates>${updates.join("")}</t:Updates></t:ItemChange></m:ItemChanges>`,
         ' ConflictResolution="NeverOverwrite"',
       );
     }

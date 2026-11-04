@@ -137,6 +137,36 @@ export class NativeDrafts {
       next_offset: items.length > 50 ? offset + 50 : null,
     };
   }
+  async inspect(p: Principal, accountId: string, bindingId: string) {
+    const a = await this.s.account(p, accountId, "mail.write"),
+      binding = await this.s.store.get<Binding>(
+        p,
+        accountId,
+        "native_binding",
+        bindingId,
+      ),
+      draft = await this.s.store.get<Draft>(
+        p,
+        accountId,
+        "draft",
+        binding.draftId,
+      ),
+      provider = await this.s.providers(a);
+    if (!provider.nativeDraft)
+      throw new MailError("NATIVE_SYNC_UNSUPPORTED", 422);
+    const remote = await provider.nativeDraft(binding.remoteId);
+    // Inspection never resets unknown/conflict or writes either draft. Resolution
+    // still re-fetches the provider and compares both caller-observed versions.
+    return {
+      binding,
+      draft,
+      remote: {
+        version: remote.version,
+        content: clean(remote.content),
+        attachments: remote.message.attachments,
+      },
+    };
+  }
   async stop(p: Principal, accountId: string, bindingId: string) {
     await this.s.account(p, accountId, "mail.write");
     const b = await this.s.store.get<Binding>(

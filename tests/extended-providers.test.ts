@@ -147,8 +147,16 @@ test("on-prem EWS SOAP stays at configured TLS origin, scopes mailbox and never 
       url: "https://exchange.invalid/EWS/Exchange.asmx",
       auth: { type: "basic" as const, username: "user", password: "synthetic" },
     },
-    provider = new EwsProvider(config, http, ["https://exchange.invalid"]);
-  assert.throws(() => new EwsProvider(config, http, []), /ORIGIN_DENIED/);
+    provider = new EwsProvider(
+      config,
+      http,
+      ["https://exchange.invalid"],
+      [Buffer.alloc(32, 1)],
+    );
+  assert.throws(
+    () => new EwsProvider(config, http, [], [Buffer.alloc(32, 1)]),
+    /ORIGIN_DENIED/,
+  );
   await provider.verify();
   assert.match(calls[0].body, /<t:EmailAddress>enterprise@example.com/);
   assert.equal(
@@ -282,5 +290,156 @@ test("native draft provider writes check draft status/version and carry Bcc", as
       "base64url",
     ).toString(),
     /Bcc: bcc@example.com/,
+  );
+});
+
+test("EWS handles bind mailbox, connection key, object kind and attachment parent across all eight operations", async () => {
+  const calls: any[] = [],
+    key = Buffer.alloc(32, 3);
+  const http: HttpRequest = async (_url, options) => {
+    const body = String(options?.body),
+      op = String(options?.headers?.SOAPAction)
+        .split("/")
+        .at(-1)!
+        .replaceAll('"', "");
+    calls.push({ op, body });
+    let result = "";
+    if (op === "FindItem")
+      result = `<m:RootFolder IncludesLastItemInRange="true"><t:Items>${body.includes('Id="contacts"') ? '<t:Contact><t:ItemId Id="contact" ChangeKey="v1"/><t:DisplayName>Contact</t:DisplayName></t:Contact>' : '<t:Message><t:ItemId Id="message" ChangeKey="v1"/><t:Subject>Mail</t:Subject></t:Message>'}</t:Items></m:RootFolder>`;
+    if (op === "FindFolder")
+      result =
+        '<m:RootFolder><t:Folders><t:Folder><t:FolderId Id="MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM"/><t:FolderClass>IPF.Note</t:FolderClass></t:Folder><t:Folder><t:FolderId Id="calendar"/><t:FolderClass>IPF.Appointment</t:FolderClass></t:Folder></t:Folders></m:RootFolder>';
+    if (op === "GetItem")
+      result =
+        '<m:Items><t:Message><t:ItemId Id="message" ChangeKey="v1"/><t:Attachments><t:FileAttachment><t:AttachmentId Id="attachment"/><t:Name>a.txt</t:Name></t:FileAttachment></t:Attachments></t:Message></m:Items>';
+    if (op === "GetAttachment")
+      result =
+        "<m:Attachments><t:FileAttachment><t:Name>a.txt</t:Name><t:Content>dGVzdA==</t:Content></t:FileAttachment></m:Attachments>";
+    return response(envelope(op, result));
+  };
+  const config = {
+    provider: "ews" as const,
+    email: "a@example.com",
+    url: "https://exchange.invalid/EWS/Exchange.asmx",
+    auth: { type: "basic" as const, username: "user", password: "synthetic" },
+  };
+  const a = new EwsProvider(config, http, ["https://exchange.invalid"], [key]);
+  const b = new EwsProvider(
+    { ...config, email: "b@example.com" },
+    http,
+    ["https://exchange.invalid"],
+    [key],
+  );
+  const foreign = (await b.search(searchSchema.parse({}))).items[0]!.id;
+  const contact = (await b.extension("contacts.list", {})).items[0]!.id;
+  const folder = (await b.folders())[0]!.id;
+  const local = (await a.search(searchSchema.parse({}))).items[0]!.id;
+  const localContact = (await a.extension("contacts.list", {})).items[0]!.id;
+  const reject = async (run: () => Promise<unknown>) => {
+    const n = calls.length;
+    await assert.rejects(run, /INVALID_EWS_HANDLE/);
+    assert.equal(calls.length, n, "invalid handle rejected before SOAP");
+  };
+  for (const run of [
+    () => a.get(foreign),
+    () => a.search(searchSchema.parse({ folder })),
+    () => a.mutate(foreign, { action: "trash" }),
+    () => a.mutate(foreign, { action: "move", destination: "inbox" }),
+    () => a.mutate(foreign, { action: "read" }),
+    () => a.extension("contacts.get", { id: contact }),
+    () => a.extension("contacts.delete", { id: contact }),
+    () =>
+      a.extension("contacts.update", {
+        id: contact,
+        contact: { displayName: "changed" },
+      }),
+    () => a.mutate(local, { action: "move", destination: folder }),
+    () => a.mutate(localContact, { action: "trash" }),
+    () => a.extension("contacts.delete", { id: local }),
+    () => a.mutate(local, { action: "move", destination: "contacts" }),
+    () => a.get(cursorEncode({ id: "raw", change: "v1" })),
+    () =>
+      a.get(
+        local.replace(
+          /\.([^.]+)$/,
+          ".AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ),
+      ),
+  ])
+    await reject(run);
+  const otherConnection = new EwsProvider(
+    config,
+    http,
+    ["https://exchange.invalid"],
+    [Buffer.alloc(32, 4)],
+  );
+  await reject(() => otherConnection.get(local));
+  const longFolder = (await a.folders())[0]!.id;
+  assert.ok(longFolder.length > 1000);
+  await a.search(searchSchema.parse({ folder: longFolder }));
+  const { tools } = await import("../src/tools.js"),
+    { fixture, alice } = await import("./helpers.js"),
+    f = await fixture();
+  try {
+    f.service.providers = async () => a;
+    const modify = tools(f.service).find((t) => t.name === "messages_modify")!;
+    const parsed = modify.schema.parse({
+      account_id: f.account.id,
+      message_id: local,
+      mutation: { action: "move", destination: longFolder },
+    });
+    await modify.run(alice, parsed);
+    assert.notDeepEqual(
+      f.vault.authenticationKeys("account-a")[0],
+      f.vault.authenticationKeys("account-b")[0],
+    );
+  } finally {
+    await f.close();
+  }
+  await a.mutate(local, { action: "read" });
+  await a.mutate(local, { action: "trash" });
+  await a.mutate(local, {
+    action: "move",
+    destination: (await a.folders())[0]!.id,
+  });
+  await a.extension("contacts.delete", { id: localContact });
+  await a.extension("contacts.update", {
+    id: localContact,
+    contact: { displayName: "changed" },
+  });
+  assert.equal(
+    (await a.folders()).length,
+    1,
+    "calendar folders cannot mint mail destination handles",
+  );
+  const message = await a.get(local);
+  assert.equal(
+    (await a.attachment(local, message.attachments[0]!.id)).content.toString(),
+    "test",
+  );
+  const rotated = new EwsProvider(
+    config,
+    http,
+    ["https://exchange.invalid"],
+    [Buffer.alloc(32, 5), key],
+  );
+  assert.equal(
+    (
+      await rotated.attachment(local, message.attachments[0]!.id)
+    ).content.toString(),
+    "test",
+    "old handles remain valid with previous key",
+  );
+  await a.extension("contacts.create", {
+    contact: {
+      surname: "Last",
+      givenName: "First",
+      emailAddresses: [{ address: "contact@example.com" }],
+      businessPhones: ["123"],
+    },
+  });
+  assert.match(
+    calls.at(-1).body,
+    /<t:GivenName>.*<t:EmailAddresses>.*<t:PhoneNumbers>.*<t:Surname>/,
   );
 });
