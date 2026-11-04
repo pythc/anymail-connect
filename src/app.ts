@@ -126,7 +126,7 @@ export async function app(
       throw new MailError("CSRF_REQUIRED", 403);
     return s.principal;
   }
-  f.get("/healthz", async () => ({ status: "ok", version: "0.4.0" }));
+  f.get("/healthz", async () => ({ status: "ok", version: "0.4.1-alpha.1" }));
   const push = new PushService(service, config);
   f.get("/api/push/:account", async (req) =>
     push.status(
@@ -194,7 +194,7 @@ export async function app(
   }));
   f.get("/", async () => ({
     name: "anymail-connect",
-    version: "0.4.0",
+    version: "0.4.1-alpha.1",
     mcp: "/mcp",
     mailbox_authorization: "/connect",
     resource_metadata: "/.well-known/oauth-protected-resource",

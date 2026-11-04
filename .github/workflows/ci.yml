@@ -1,5 +1,9 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call:
 permissions:
   contents: read
 jobs:
@@ -54,5 +58,15 @@ jobs:
           quay.io/keycloak/keycloak@sha256:3f3c5f8e03c614774b4bd9173b88391fefa4153bfc010d8012d59ad825377332
           start-dev --hostname=http://localhost:4391 --import-realm
       - run: npm run test:oidc
+      - run: docker build -t anymail-connect:ci .
+      - run: ANYMAIL_IMAGE=anymail-connect:ci node scripts/demo.mjs init
+      - run: docker compose --env-file .artifacts/demo/compose.env -f examples/demo/compose.yaml up -d --wait --wait-timeout 240
+      - run: python tests/demo.py
+      - if: failure()
+        run: docker compose --env-file .artifacts/demo/compose.env -f examples/demo/compose.yaml logs --tail 40 api identity
       - if: always()
-        run: docker rm -f anymail-connect-ci-keycloak || true
+        run: |
+          docker rm -f anymail-connect-ci-keycloak || true
+          if [ -f .artifacts/demo/compose.env ]; then
+            docker compose --env-file .artifacts/demo/compose.env -f examples/demo/compose.yaml down --volumes
+          fi

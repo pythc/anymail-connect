@@ -1,0 +1,20 @@
+name: Compatibility result
+description: Record an exact provider, account type, operation and client combination.
+labels: [compatibility]
+body:
+  - type: input
+    id: version
+    attributes: {label: AnyMail tag / commit / image digest}
+    validations: {required: true}
+  - type: textarea
+    id: environment
+    attributes: {label: Provider / server and client versions, description: "Include personal, enterprise or delegated shared account type, transport and requested scopes. No tenant IDs, private addresses or credentials."}
+    validations: {required: true}
+  - type: textarea
+    id: operations
+    attributes: {label: Operations and outcomes, description: "List each operation with expected/observed outcome. Distinguish protocol fixtures from real accounts, read-only from writes, and provider acceptance from delivery."}
+    validations: {required: true}
+  - type: textarea
+    id: evidence
+    attributes: {label: Redacted reproduction and limitations, description: Use synthetic data and error codes. Note untested operations and transient failures.}
+    validations: {required: true}

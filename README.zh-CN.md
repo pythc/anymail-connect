@@ -62,4 +62,12 @@ npm run build
 
 仓库保留合成回归测试、协议夹具与 CI。真实账号凭证、邮箱内容、验收令牌、个人开发清单、构建输出和测试报告不属于公开源码。英文文档提供[架构](docs/architecture.md)、[HTTP/MCP 接口](docs/api.md)、[部署](docs/deployment.md)、[服务商配置](docs/providers.md)、[升级/备份/密钥轮换](docs/operations.md)和[贡献指南](CONTRIBUTING.md)。
 
-当前为 `UNLICENSED`；公开可见不等于授予开源再分发许可。项目不隶属于 OpenAI、Google 或 Microsoft。封面由 OpenAI 图像生成工具制作。
+## 参与项目
+
+先试用[本机合成邮箱](docs/quickstart.md)：预编译镜像、本地 OIDC 登录、搜索、草稿和人工审批；发送仅为模拟，不会向外发信。真实邮箱部署须单独配置授权。
+
+参阅[适配器贡献指南](docs/adapters.md)、[兼容性与验收证据](docs/compatibility.md)和[发行与升级](docs/releases.md)。问题讨论在 [Discussions](https://github.com/pythc/anymail-connect/discussions)，公开工作计划在 [Issues / Milestones](https://github.com/pythc/anymail-connect/milestones)。请遵守[社区行为准则](CODE_OF_CONDUCT.md)，漏洞通过[私密报告](https://github.com/pythc/anymail-connect/security/advisories/new)提交。
+
+## 许可
+
+采用 [Apache-2.0](LICENSE) 许可证。项目不隶属于 OpenAI、Google 或 Microsoft。封面由 OpenAI 图像生成工具制作。

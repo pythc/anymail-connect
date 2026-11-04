@@ -1,0 +1,15 @@
+name: Feature proposal
+description: Describe a concrete missing workflow and its constraints.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes: {label: Problem and affected users, description: Explain the personal or enterprise mailbox workflow.}
+    validations: {required: true}
+  - type: textarea
+    id: proposal
+    attributes: {label: Proposed behavior and alternatives}
+    validations: {required: true}
+  - type: textarea
+    id: constraints
+    attributes: {label: Provider capabilities and authorization, description: Include required protocols, permissions, limits and primary documentation links. No credentials.}

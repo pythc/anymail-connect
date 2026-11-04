@@ -1,0 +1,22 @@
+name: Bug report
+description: Report reproducible incorrect behavior with redacted evidence.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include tokens, credential files, private addresses or real message contents. Use private security reporting for vulnerabilities.
+  - type: input
+    id: version
+    attributes: {label: AnyMail version / commit / image digest}
+    validations: {required: true}
+  - type: textarea
+    id: environment
+    attributes: {label: Environment, description: "OS, Node/Docker, database, provider, account type and MCP client/version. Redact identifying information."}
+    validations: {required: true}
+  - type: textarea
+    id: reproduce
+    attributes: {label: Reproduction and expected / observed behavior, description: Include minimal synthetic input and redacted error codes. Do not replay an unknown send.}
+    validations: {required: true}
+  - type: textarea
+    id: evidence
+    attributes: {label: Relevant redacted evidence and checks attempted}

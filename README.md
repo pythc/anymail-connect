@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/pythc/anymail-connect/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/pythc/anymail-connect/actions/workflows/ci.yml/badge.svg"></a>
 </p>
-<p align="center"><a href="docs/architecture.md">Architecture</a> · <a href="docs/deployment.md">Deploy</a> · <a href="docs/providers.md">Providers</a> · <a href="docs/api.md">API reference</a></p>
+<p align="center"><a href="docs/quickstart.md">Quickstart</a> · <a href="docs/architecture.md">Architecture</a> · <a href="docs/deployment.md">Deploy</a> · <a href="docs/providers.md">Providers</a> · <a href="docs/api.md">API reference</a></p>
 
 Connect personal and enterprise mailboxes through one authorization and workflow boundary. Native Gmail and Microsoft Graph adapters preserve provider capabilities; IMAP/SMTP, JMAP and administrator-approved EWS extend coverage.
 
@@ -46,7 +46,17 @@ Optional CardDAV adds a configured address book to a connection. [Provider notes
 - **An independent worker.** Checkpointed sync, periodic reconciliation, IMAP IDLE, authenticated Gmail/Graph notifications, native-draft conflict handling and retention.
 - **Bounded attachment processing.** Authenticated bytes, limited extraction, opt-in offline OCR and explicitly selected private text indexes.
 
-## Run it yourself
+## Try it locally
+
+Start with the [synthetic mailbox quickstart](docs/quickstart.md): prebuilt image, generated credentials, local OIDC and an explicit approval workflow. No real mailbox or cloud account is required. Submission is simulated. See [releases](https://github.com/pythc/anymail-connect/releases) for exact image digests and verification.
+
+```sh
+node scripts/demo.mjs init
+docker compose --env-file .artifacts/demo/compose.env -f examples/demo/compose.yaml up -d --wait
+node scripts/demo.mjs walk
+```
+
+## Deploy for real mail
 
 You need **Node.js 24+**, **PostgreSQL** and an **OIDC provider**. Mailbox-provider OAuth is configured separately from the identity provider used to access AnyMail.
 
@@ -101,8 +111,12 @@ Regression tests and synthetic protocol fixtures belong in source control. Crede
 | [Operations](docs/operations.md) | Backups, upgrades, rollback, key rotation and retention |
 | [Security policy](SECURITY.md) | Review scope, untrusted content and disclosure |
 
+## Join the project
+
+Read the [adapter guide](docs/adapters.md), check [compatibility evidence](docs/compatibility.md), or pick a small [good first issue](https://github.com/pythc/anymail-connect/labels/good%20first%20issue). Questions belong in [Discussions](https://github.com/pythc/anymail-connect/discussions); public plans live in [Issues and milestones](https://github.com/pythc/anymail-connect/milestones). Please follow the [code of conduct](CODE_OF_CONDUCT.md) and use [private security reporting](https://github.com/pythc/anymail-connect/security/advisories/new) for vulnerabilities.
+
 ## License
 
-`UNLICENSED`. Public visibility does not grant an open-source redistribution license. Dependencies retain their own licenses. This project is not affiliated with OpenAI, Google or Microsoft.
+[Apache-2.0](LICENSE). Dependencies retain their own licenses. This project is not affiliated with OpenAI, Google or Microsoft.
 
 <sub>Cover artwork generated with OpenAI image generation.</sub>

@@ -1,0 +1,71 @@
+name: anymail-demo
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: anymail
+      POSTGRES_DB: anymail_demo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run demo init}
+    volumes: ["database:/var/lib/postgresql/data"]
+    networks: [demo]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anymail -d anymail_demo"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  identity:
+    image: quay.io/keycloak/keycloak@sha256:3f3c5f8e03c614774b4bd9173b88391fefa4153bfc010d8012d59ad825377332
+    command:
+      [
+        "start-dev",
+        "--http-port=4481",
+        "--hostname=http://localhost:4481",
+        "--import-realm",
+      ]
+    volumes:
+      [
+        "${DEMO_DIR:?Run demo init}/realm.json:/opt/keycloak/data/import/realm.json:ro",
+      ]
+    ports: ["127.0.0.1:4480:4480", "127.0.0.1:4481:4481"]
+    networks: [demo]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bash",
+          "-c",
+          "exec 3<>/dev/tcp/127.0.0.1/4481; printf 'GET /realms/anymail-demo/.well-known/openid-configuration HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; grep -q '200 OK' <&3",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+  api:
+    image: ${ANYMAIL_IMAGE:?Run demo init}
+    env_file: ["${DEMO_DIR}/app.env"]
+    command: ["node", "dist/examples/demo/server.js"]
+    network_mode: service:identity
+    depends_on:
+      db: { condition: service_healthy }
+      identity: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:4480/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+networks:
+  demo:
+    ipam:
+      config:
+        - subnet: ${DEMO_SUBNET:-10.253.251.0/28}
+volumes:
+  database:

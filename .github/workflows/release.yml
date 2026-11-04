@@ -1,0 +1,72 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    uses: ./.github/workflows/ci.yml
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; const p=JSON.parse(fs.readFileSync("package.json")); if(process.env.GITHUB_REF_NAME !== "v"+p.version) throw Error("Tag/package version mismatch")'
+          git merge-base --is-ancestor HEAD origin/main
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo 'Existing releases are never overwritten; issue a new version.' >&2
+            exit 1
+          fi
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        id: image
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ env.IMAGE }}:${{ env.VERSION }}
+          provenance: mode=max
+          sbom: true
+          labels: |
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+      - name: Package source and publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          mkdir -p .artifacts/release
+          git archive --format=tar.gz --prefix="anymail-connect-${VERSION}/" HEAD > ".artifacts/release/anymail-connect-${VERSION}.tar.gz"
+          printf '%s@%s\n' "$IMAGE" "$DIGEST" > .artifacts/release/image.txt
+          (cd .artifacts/release && sha256sum *.tar.gz image.txt > SHA256SUMS)
+          node scripts/release-notes.mjs > .artifacts/release/notes.md
+          gh release create "$GITHUB_REF_NAME" .artifacts/release/*.tar.gz .artifacts/release/image.txt .artifacts/release/SHA256SUMS --verify-tag --prerelease --title "$GITHUB_REF_NAME" --notes-file .artifacts/release/notes.md

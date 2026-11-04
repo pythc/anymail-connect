@@ -1,9 +1,9 @@
 {
   "name": "anymail-connect",
-  "version": "0.4.0",
+  "version": "0.4.1-alpha.1",
   "private": true,
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "engines": {
     "node": ">=24"
   },
@@ -19,8 +19,8 @@
     "rotate-keys": "tsx src/rotate-main.ts",
     "test:ocr": "node scripts/ocr-test.mjs",
     "pretest": "node scripts/testcert.mjs",
-    "format": "prettier --write src tests scripts",
-    "format:check": "prettier --check src tests scripts",
+    "format": "prettier --write src tests scripts examples",
+    "format:check": "prettier --check src tests scripts examples",
     "test:browser": "node scripts/browser-tests.mjs browser",
     "test:oidc": "node scripts/browser-tests.mjs oidc"
   },

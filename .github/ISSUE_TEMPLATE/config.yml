@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and design discussion
+    url: https://github.com/pythc/anymail-connect/discussions
+    about: Ask setup questions or discuss a proposal before a large implementation.
+  - name: Report a vulnerability privately
+    url: https://github.com/pythc/anymail-connect/security/advisories/new
+    about: Never disclose exploitable details or credentials in a public issue.
