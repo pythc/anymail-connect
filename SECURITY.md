@@ -6,4 +6,4 @@ Email content and external provider responses are untrusted data. Any model-visi
 
 Do not post credentials, private messages, or exploitable customer data to public issues. Use GitHub private vulnerability reporting when enabled by the repository owner. No private reporting address is asserted before one is configured.
 
-0.1.0 is a development release. Real provider/ChatGPT acceptance, hosted multi-tenant deployment and third-party audits are pending; see TODO.md and docs/implementation.zh-CN.md.
+0.2.0 is a development release. Real provider/ChatGPT acceptance, hosted multi-tenant deployment and third-party audits are pending; see TODO.md and docs/implementation.zh-CN.md.

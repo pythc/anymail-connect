@@ -126,6 +126,19 @@ export class GmailProvider implements MailProvider {
     const r = await this.api.call("/users/me/profile");
     return { email: r.emailAddress };
   }
+  async subscribe(o: { topic?: string }) {
+    if (!o.topic) throw new MailError("GMAIL_PUSH_NOT_CONFIGURED", 503);
+    const r = await this.api.call("/users/me/watch", "POST", {
+      topicName: o.topic,
+    });
+    const expiration = Number(r.expiration);
+    if (!Number.isFinite(expiration) || expiration <= Date.now())
+      throw new MailError("INVALID_SUBSCRIPTION_RESPONSE", 502);
+    return { id: this.email, expiresAt: new Date(expiration).toISOString() };
+  }
+  async unsubscribe() {
+    await this.api.call("/users/me/stop", "POST");
+  }
   async search(s: Search): Promise<Page<Message>> {
     const q = [
       s.query,

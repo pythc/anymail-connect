@@ -554,11 +554,64 @@ test("persistent mail workflows, isolation, consent and recovery", async (t) => 
       }
     },
   );
+  await t.test(
+    "shutdown does not claim another approved scheduled send",
+    async () => {
+      const op = await prepared();
+      await f.service.approve(alice, op.id, op.digest);
+      const controller = new AbortController();
+      controller.abort();
+      const before = f.provider.sends;
+      await f.service.tick(controller.signal);
+      assert.equal(f.provider.sends, before);
+      assert.equal((await f.service.operation(alice, op.id)).state, "approved");
+      await f.service.cancel(alice, op.id);
+    },
+  );
+  await t.test(
+    "v1 upgrade and repeated migration preserve credentials, drafts and send ledger",
+    async () => {
+      const d = await draft(),
+        op = await f.service.prepare(
+          alice,
+          f.account.id,
+          d.id,
+          d.revision,
+          crypto.randomUUID(),
+        );
+      const before = await f.store.account(alice, f.account.id);
+      await f.db.query("DELETE FROM schema_version WHERE version=2");
+      await f.db.query("DROP TABLE change_requests");
+      const { migrate } = await import("../src/db.js");
+      await migrate(f.db);
+      await migrate(f.db);
+      assert.equal(
+        (await f.store.account(alice, f.account.id)).secret,
+        before.secret,
+      );
+      assert.deepEqual(
+        (await f.service.operation(alice, op.id)).content,
+        op.content,
+      );
+      assert.equal(
+        (
+          await f.db.query(
+            "SELECT version FROM schema_version ORDER BY version",
+          )
+        ).rows.length,
+        2,
+      );
+      assert.equal(
+        (await f.db.query("SELECT id FROM change_requests")).rows.length,
+        0,
+      );
+    },
+  );
   await t.test("schema newer than executable blocks rollback", async () => {
-    await f.db.query("INSERT INTO schema_version VALUES(2)");
+    await f.db.query("INSERT INTO schema_version VALUES(3)");
     const { migrate } = await import("../src/db.js");
     await assert.rejects(migrate(f.db), /newer/);
-    await f.db.query("DELETE FROM schema_version WHERE version=2");
+    await f.db.query("DELETE FROM schema_version WHERE version=3");
   });
   await t.test(
     "account revoke cancels queued sends and deletes scoped private documents",

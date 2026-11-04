@@ -42,7 +42,7 @@ export class ImapProvider implements MailProvider {
     private config: ImapConnection,
     private policy: NetworkPolicy,
   ) {}
-  private async client() {
+  private async client(idle = false) {
     const c = this.config,
       address = (
         await resolveEndpoint(c.imap.host, c.imap.port, this.policy)
@@ -60,12 +60,18 @@ export class ImapProvider implements MailProvider {
         ...(isIP(c.imap.host) ? {} : { servername: c.imap.host }),
       },
       connectionTimeout: 15_000,
-      socketTimeout: 30_000,
+      socketTimeout: idle ? 30 * 60_000 : 30_000,
+      ...(idle ? { disableAutoIdle: true, maxIdleTime: 25 * 60_000 } : {}),
       maxLiteralSize: MAX_MESSAGE,
     };
     const client = new ImapFlow(options);
     client.on("error", () => {});
-    await client.connect();
+    try {
+      await client.connect();
+    } catch (e) {
+      client.close();
+      throw e;
+    }
     return client;
   }
   private async withClient<T>(fn: (c: ImapFlow) => Promise<T>) {
@@ -93,6 +99,33 @@ export class ImapProvider implements MailProvider {
       await c.mailboxOpen("INBOX", { readOnly: true });
     });
     return { email: this.config.email };
+  }
+  async watch(folder: string, onChange: () => void, signal: AbortSignal) {
+    if (signal.aborted) return;
+    const c = await this.client(true);
+    const close = () => c.close();
+    signal.addEventListener("abort", close, { once: true });
+    try {
+      if (signal.aborted) return;
+      if (!c.capabilities.has("IDLE"))
+        throw new MailError("IDLE_UNSUPPORTED", 422);
+      const changed = (event: { path?: string }) => {
+        if (!signal.aborted && (!event.path || event.path === folder))
+          onChange();
+      };
+      c.on("exists", changed);
+      c.on("expunge", changed);
+      c.on("flags", changed);
+      await c.mailboxOpen(folder, { readOnly: true });
+      while (!signal.aborted) {
+        if ((await c.idle()) === false) throw new MailError("IDLE_ENDED", 502);
+      }
+    } catch (e) {
+      if (!signal.aborted) throw e;
+    } finally {
+      signal.removeEventListener("abort", close);
+      c.close();
+    }
   }
   private async parse(
     f: FetchMessageObject,

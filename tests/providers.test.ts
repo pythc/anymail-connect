@@ -270,6 +270,55 @@ test("provider HTTP contracts and network boundaries", async (t) => {
     },
   );
   await t.test(
+    "native watch/subscription creation, renewal and cancellation contracts",
+    async () => {
+      respond = (url) =>
+        url.endsWith("/watch")
+          ? { expiration: String(Date.now() + 7 * 86400_000), historyId: "100" }
+          : { status: 204 };
+      const watch = await gmail.subscribe({
+        topic: "projects/lab/topics/mail",
+      });
+      assert.equal(watch.id, "test@example.com");
+      assert.equal(
+        JSON.parse(requests.at(-1)!.options.body).topicName,
+        "projects/lab/topics/mail",
+      );
+      await gmail.unsubscribe();
+      assert.ok(requests.at(-1)!.url.endsWith("/users/me/stop"));
+      respond = (_url, o) =>
+        o.method === "GET"
+          ? { value: [] }
+          : {
+              id: "subscription-lab",
+              expirationDateTime: new Date(
+                Date.now() + 2 * 86400_000,
+              ).toISOString(),
+            };
+      const result = await graph.subscribe({
+        callback: "https://anymail.invalid/webhooks/graph",
+        clientState: "synthetic-secret",
+      });
+      assert.equal(result.id, "subscription-lab");
+      assert.equal(
+        JSON.parse(requests.at(-1)!.options.body).includeResourceData,
+        undefined,
+      );
+      assert.equal(
+        JSON.parse(requests.at(-1)!.options.body).clientState,
+        "synthetic-secret",
+      );
+      await graph.subscribe({
+        callback: "https://anymail.invalid/webhooks/graph",
+        clientState: "synthetic-secret",
+        id: result.id,
+      });
+      assert.equal(requests.at(-1)!.options.method, "PATCH");
+      respond = () => ({ status: 404 });
+      await graph.unsubscribe(result.id);
+    },
+  );
+  await t.test(
     "Gmail raw MIME contains attachment and correct from identity",
     async () => {
       respond = () => ({ id: "accepted" });

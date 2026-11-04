@@ -13,12 +13,14 @@ import { tools } from "./tools.js";
 import { mcp } from "./mcp.js";
 import { ProviderOAuth } from "./provider-oauth.js";
 import { page, style, script, escape, approvalPage } from "./ui.js";
+import { PushService, gmailPushVerifier, type PushVerify } from "./push.js";
 type Session = { principal: Principal; csrf: string; expiresAt: number };
 export async function app(
   service: MailService,
   config: Config,
   verify: Verify,
   settings?: oidc.Configuration,
+  pushVerify: PushVerify = gmailPushVerifier(config),
 ) {
   const f = Fastify({
     bodyLimit: 8 * 1024 * 1024,
@@ -101,7 +103,61 @@ export async function app(
       throw new MailError("CSRF_REQUIRED", 403);
     return s.principal;
   }
-  f.get("/healthz", async () => ({ status: "ok", version: "0.1.0" }));
+  f.get("/healthz", async () => ({ status: "ok", version: "0.2.0" }));
+  const push = new PushService(service, config);
+  f.get("/api/push/:account", async (req) =>
+    push.status(
+      await principal(req),
+      z
+        .string()
+        .uuid()
+        .parse((req.params as any).account),
+    ),
+  );
+  f.post("/api/push", async (req) => {
+    const p = await principal(req, true),
+      i = z
+        .object({
+          account_id: z.string().uuid(),
+          action: z.enum(["enable", "disable"]),
+        })
+        .strict()
+        .parse(req.body);
+    return i.action === "enable"
+      ? push.enable(p, i.account_id)
+      : push.disable(p, i.account_id);
+  });
+  f.post(
+    "/webhooks/graph",
+    {
+      bodyLimit: 1024 * 1024,
+      config: { rateLimit: { max: 3000, timeWindow: "1 minute" } },
+    },
+    async (req, reply) => {
+      const query = req.query as { validationToken?: unknown };
+      if (query.validationToken !== undefined)
+        return reply
+          .type("text/plain")
+          .send(z.string().min(1).max(2048).parse(query.validationToken));
+      await push.graph(req.body);
+      return reply.code(202).send();
+    },
+  );
+  f.post(
+    "/webhooks/gmail",
+    {
+      bodyLimit: 64 * 1024,
+      config: { rateLimit: { max: 3000, timeWindow: "1 minute" } },
+    },
+    async (req, reply) => {
+      const auth = req.headers.authorization;
+      if (!auth?.startsWith("Bearer "))
+        throw new MailError("PUSH_AUTH_REQUIRED", 401);
+      await pushVerify(auth.slice(7));
+      await push.gmail(req.body);
+      return reply.code(204).send();
+    },
+  );
   f.get("/.well-known/oauth-protected-resource", async () => ({
     resource: config.OIDC_AUDIENCE,
     authorization_servers: [config.OIDC_ISSUER],

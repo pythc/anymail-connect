@@ -76,6 +76,61 @@ export class GraphProvider implements MailProvider {
     );
     return { email: r.mail || r.userPrincipalName };
   }
+  async subscribe(o: { callback: string; clientState: string; id?: string }) {
+    if (this.mailbox)
+      throw new MailError("SHARED_MAILBOX_PUSH_UNSUPPORTED", 422);
+    const resource = "/me/mailFolders('inbox')/messages";
+    let id = o.id;
+    if (!id) {
+      const current = await this.api.call("/subscriptions");
+      id = current.value?.find(
+        (s: any) =>
+          s.clientState === o.clientState &&
+          s.notificationUrl === o.callback &&
+          s.resource === resource,
+      )?.id;
+    }
+    const expirationDateTime = new Date(
+      Date.now() + 2 * 86400_000,
+    ).toISOString();
+    let r;
+    try {
+      r = id
+        ? await this.api.call("/subscriptions/" + enc(id), "PATCH", {
+            expirationDateTime,
+          })
+        : undefined;
+    } catch (e) {
+      if (!(e instanceof MailError && e.code === "NOT_FOUND")) throw e;
+    }
+    if (!r)
+      r = await this.api.call("/subscriptions", "POST", {
+        changeType: "created,updated,deleted",
+        notificationUrl: o.callback,
+        lifecycleNotificationUrl: o.callback,
+        resource,
+        expirationDateTime,
+        clientState: o.clientState,
+      });
+    if (
+      typeof r.id !== "string" ||
+      r.id.length > 500 ||
+      !Number.isFinite(Date.parse(r.expirationDateTime)) ||
+      Date.parse(r.expirationDateTime) <= Date.now()
+    )
+      throw new MailError("INVALID_SUBSCRIPTION_RESPONSE", 502);
+    return {
+      id: r.id,
+      expiresAt: new Date(r.expirationDateTime).toISOString(),
+    };
+  }
+  async unsubscribe(id: string) {
+    try {
+      await this.api.call("/subscriptions/" + enc(id), "DELETE");
+    } catch (e) {
+      if (!(e instanceof MailError && e.code === "NOT_FOUND")) throw e;
+    }
+  }
   async search(s: Search): Promise<Page<Message>> {
     const path =
       this.root +

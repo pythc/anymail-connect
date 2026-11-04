@@ -76,10 +76,31 @@ MCP 地址为 `BASE_URL/mcp`，发现文档为 `BASE_URL/.well-known/oauth-prote
 
 - 备份 PostgreSQL 和**独立保存的加密密钥**；丢失密钥后凭证不可恢复。默认没有密钥轮换迁移，不要直接换密钥后重启。
 - 升级前停止 worker 领取新任务，等待正在提交的操作结束；记录 unknown 操作并人工对账。备份须在隔离数据库演练恢复。
-- 应用 schema v1 为非破坏性首次建表；发现更新的 schema_version 时旧程序拒绝启动，防止静默不兼容回滚。未来迁移遵循 expand/contract，不能仅靠当前建表脚本宣称后续版本已可回滚。
+- 0.2.0 增加 schema v2 持久同步队列及索引；v1 邮件/凭证/发送表保留，迁移在事务内可重跑。旧版 0.1.0 发现 v2 会拒绝启动，避免误用主权云凭证；新程序发现更高 schema_version 同样拒绝启动，防止静默不兼容回滚。未来迁移遵循 expand/contract，不能仅靠当前建表脚本宣称后续版本已可回滚。
 - 本轮新增发送绑定字段；升级后旧格式 pending/approved 意图会拒绝提交，需取消后重新准备并确认。不可把旧批准默认解释为新格式批准。
 - 回滚不得清空 operations 表、重建发送意图或把 unknown 改回 approved。回滚到兼容镜像，保留同一台账与密钥。
 - 撤销账号连接清除凭证、缓存与草稿，取消 pending/approved；已开始提交的邮件不能保证撤回。审计与 operations 保留发送证据，备份中的旧数据按部署方保留策略清理。
 - 日志只写操作状态，不记录邮件正文和凭证。更细致告警、保留清理和生产容量目标由试点测量后确定。
 
 未在此任务中部署到公网、申请审核或接入个人真实邮箱。
+
+## 0.2.0 即时同步与云环境
+
+`IMAP_IDLE_CONNECTIONS` 默认每 worker 8 条，0 关闭监听。每账号 INBOX 通过数据库租约避免多个 worker 重复占用，连接每 20 分钟轮转；服务器缺少 IDLE 或连接失败时保留周期对账。监听回调只写入持久同步请求。网页和 `notifications_status` 显示账号推送状态/worker 分配；worker 租约不代表已完成远端 TLS 握手，也不意味着 ChatGPT 会被主动唤醒。
+
+Graph 云环境在注册应用前选择：`MICROSOFT_CLOUD=global|usgov|usgovdod|china`。OAuth 授权、token 交换/刷新和 Graph API 使用对应静态端点；旧凭证省略 cloud 时使用 global。个人 Outlook 账号使用 global，其他云需要对应组织的应用注册、权限和真实账号验收。Graph 委派共享邮箱不能订阅该共享文件夹推送，继续周期对账。[官方云端点](https://learn.microsoft.com/en-us/graph/deployments)、[Outlook 通知权限限制](https://learn.microsoft.com/en-us/graph/outlook-change-notifications-overview)。
+
+Gmail 推送由部署方先在 **OAuth 应用同一 Google 项目** 创建 Pub/Sub topic 和 authenticated push subscription：
+
+1. 给 `gmail-api-push@system.gserviceaccount.com` topic Publisher 权限。
+2. push endpoint 和 OIDC audience 均为 `BASE_URL/webhooks/gmail`；选择部署方控制的 service account。
+3. 将 topic 完整资源名设置为 `GMAIL_PUSH_TOPIC`，service account 邮箱设为 `GMAIL_PUSH_IDENTITY`。服务端校验 RS256 签名、issuer、audience、email、email_verified、过期时间；不接受匿名 Pub/Sub。
+4. 登录管理网页，选择已有 Gmail 账号后点击“启用服务商推送”。定期续期，并保留 history/周期对账。通知中的 historyId 只作提示，不覆盖已提交检查点。
+
+Graph 推送同样在账号管理页开启，回调为 `BASE_URL/webhooks/graph`，必须公网可访问的 HTTPS。端点处理 validationToken，并按订阅 ID 和加密保存的随机 clientState 验证通知。基础通知不要求正文资源随回调传输；服务端以原账号权限查询增量。生命周期事件会请求续期与对账。远端停止结果不确定时，本地先禁用通知处理，远端订阅可能保留至其到期。撤销连接后，本地不再接收该账号的工作；已发出的远端请求不能保证撤回。
+
+这些端点已实现并通过合成通知/签名及请求契约验证；本任务没有配置公网 Pub/Sub、在真实 Microsoft 租户创建订阅或触发真实邮件推送。[Gmail 推送指南](https://developers.google.com/workspace/gmail/api/guides/push)、[Pub/Sub JWT 校验](https://docs.cloud.google.com/pubsub/docs/authenticate-push-subscriptions)、[Graph 回调协议](https://learn.microsoft.com/en-us/graph/change-notifications-delivery-webhooks)。
+
+JMAP 服务若在不同主机提供 API/上传/下载，设置 `JMAP_ALLOWED_ORIGINS=https://api.example.com,https://files.example.com`。只接受规范化 HTTPS origin（无路径、账号密码、尾部斜杠），不接受用户在连接参数传入白名单。名单主机会收到该 JMAP 账号的 Bearer token，因此由管理员逐一确认服务商；不同信任域可用不同部署。网络出口的私有地址/端口限制及 TLS 验证继续生效，HTTP 重定向不自动跟随。
+
+0.2.0 的 schema v2 是本次升级门槛；现库不能直接用 0.1.0 镜像回退。选择同样支持 v2 的已验证镜像回滚。若需跨 schema 退回，只能先在隔离环境演练受控数据迁移并核对升级后所有外部发送；**不能直接恢复旧 operations 快照**，否则可能重发已经投递的邮件。

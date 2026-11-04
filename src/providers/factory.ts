@@ -18,12 +18,14 @@ import { GmailProvider } from "./gmail.js";
 import { GraphProvider } from "./graph.js";
 import { ImapProvider } from "./imap.js";
 import { JmapProvider } from "./jmap.js";
+import { microsoftClouds } from "./microsoft.js";
 export type ProviderFactory = (account: Account) => Promise<MailProvider>;
 export function makeFactory(
   store: Store,
   vault: Vault,
   policy: NetworkPolicy,
   http: HttpRequest = httpClient(policy),
+  jmapOrigins: string[] = [],
 ): ProviderFactory {
   return async (account) => {
     const context = `${account.tenant}:${account.owner}:${account.id}`;
@@ -48,7 +50,7 @@ export function makeFactory(
         const endpoint =
           c.provider === "gmail"
             ? "https://oauth2.googleapis.com/token"
-            : `https://login.microsoftonline.com/${encodeURIComponent(o.tenant)}/oauth2/v2.0/token`;
+            : `${microsoftClouds[c.cloud ?? "global"].authority}/${encodeURIComponent(o.tenant)}/oauth2/v2.0/token`;
         const r = await http(endpoint, {
           method: "POST",
           headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -80,12 +82,16 @@ export function makeFactory(
       );
     if (connection.provider === "graph")
       return new GraphProvider(
-        new Rest("https://graph.microsoft.com/v1.0", token, http),
+        new Rest(
+          microsoftClouds[connection.cloud ?? "global"].graph + "/v1.0",
+          token,
+          http,
+        ),
         connection.mailbox,
         connection.email,
       );
     if (connection.provider === "imap")
       return new ImapProvider(connection, policy);
-    return new JmapProvider(connection, http);
+    return new JmapProvider(connection, http, jmapOrigins);
   };
 }

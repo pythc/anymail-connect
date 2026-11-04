@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { microsoftClouds, type MicrosoftCloud } from "./providers/microsoft.js";
 import { opaque } from "./crypto.js";
 import { MailError, requireScope, type Principal } from "./domain.js";
 import type { MailService } from "./service.js";
@@ -11,28 +12,26 @@ type State = {
   writable: boolean;
   sendEnabled: boolean;
   mailbox?: string;
+  cloud?: MicrosoftCloud;
 };
 export class ProviderOAuth {
   constructor(
     private service: MailService,
     private c: Config,
   ) {}
-  private options(provider: "gmail" | "graph") {
+  private options(provider: "gmail" | "graph", cloud = this.c.MICROSOFT_CLOUD) {
     if (provider === "gmail")
       return {
         clientId: this.c.GOOGLE_CLIENT_ID,
         clientSecret: this.c.GOOGLE_CLIENT_SECRET,
         authorize: "https://accounts.google.com/o/oauth2/v2/auth",
         token: "https://oauth2.googleapis.com/token",
-        scope: "https://www.googleapis.com/auth/gmail.modify",
       };
     return {
       clientId: this.c.MICROSOFT_CLIENT_ID,
       clientSecret: this.c.MICROSOFT_CLIENT_SECRET,
-      authorize: `https://login.microsoftonline.com/${this.c.MICROSOFT_TENANT}/oauth2/v2.0/authorize`,
-      token: `https://login.microsoftonline.com/${this.c.MICROSOFT_TENANT}/oauth2/v2.0/token`,
-      scope:
-        "offline_access https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/User.Read",
+      authorize: `${microsoftClouds[cloud].authority}/${this.c.MICROSOFT_TENANT}/oauth2/v2.0/authorize`,
+      token: `${microsoftClouds[cloud].authority}/${this.c.MICROSOFT_TENANT}/oauth2/v2.0/token`,
     };
   }
   async start(
@@ -46,12 +45,22 @@ export class ProviderOAuth {
     if (sendEnabled) requireScope(p, "mail.send");
     if (sendEnabled && !writable)
       throw new MailError("SEND_REQUIRES_WRITE_POLICY");
-    const o = this.options(provider);
+    const cloud = this.c.MICROSOFT_CLOUD,
+      graph = microsoftClouds[cloud].graph;
+    const o = this.options(provider, cloud);
     if (!o.clientId || !o.clientSecret)
       throw new MailError("PROVIDER_OAUTH_NOT_CONFIGURED", 503);
     const state = opaque(),
       verifier = opaque();
-    const value = { p, verifier, provider, writable, sendEnabled, mailbox };
+    const value = {
+      p,
+      verifier,
+      provider,
+      writable,
+      sendEnabled,
+      mailbox,
+      cloud,
+    };
     await this.service.store.setSession(
       "oauth:" + state,
       { sealed: this.service.vault.seal(value, "oauth:" + state) },
@@ -73,16 +82,12 @@ export class ProviderOAuth {
               ].join(" ")
           : [
               "offline_access",
-              "https://graph.microsoft.com/User.Read",
-              `https://graph.microsoft.com/Mail.${writable ? "ReadWrite" : "Read"}${mailbox ? ".Shared" : ""}`,
+              `${graph}/User.Read`,
+              `${graph}/Mail.${writable ? "ReadWrite" : "Read"}${mailbox ? ".Shared" : ""}`,
               ...(sendEnabled
-                ? [
-                    `https://graph.microsoft.com/Mail.Send${mailbox ? ".Shared" : ""}`,
-                  ]
+                ? [`${graph}/Mail.Send${mailbox ? ".Shared" : ""}`]
                 : []),
-              ...(writable && !mailbox
-                ? ["https://graph.microsoft.com/Contacts.ReadWrite"]
-                : []),
+              ...(writable && !mailbox ? [`${graph}/Contacts.ReadWrite`] : []),
             ].join(" "),
       state,
       code_challenge: createHash("sha256").update(verifier).digest("base64url"),
@@ -101,7 +106,8 @@ export class ProviderOAuth {
     const s = this.service.vault.open<State>(record.sealed, "oauth:" + state);
     if (s.p.subject !== p.subject || s.p.tenant !== p.tenant)
       throw new MailError("OAUTH_IDENTITY_MISMATCH", 403);
-    const o = this.options(s.provider),
+    const cloud = s.cloud ?? "global";
+    const o = this.options(s.provider, cloud),
       http = httpClient({ privateEndpoints: [] });
     const r = await http(o.token, {
       method: "POST",
@@ -122,7 +128,8 @@ export class ProviderOAuth {
     const endpoint =
       s.provider === "gmail"
         ? "https://gmail.googleapis.com/gmail/v1/users/me/profile"
-        : "https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName";
+        : microsoftClouds[cloud].graph +
+          "/v1.0/me?$select=mail,userPrincipalName";
     const identity = await http(endpoint, {
       headers: { authorization: `Bearer ${token.access_token}` },
     });
@@ -138,7 +145,9 @@ export class ProviderOAuth {
       {
         provider: s.provider,
         email,
-        ...(s.provider === "graph" && s.mailbox ? { mailbox: s.mailbox } : {}),
+        ...(s.provider === "graph"
+          ? { cloud, ...(s.mailbox ? { mailbox: s.mailbox } : {}) }
+          : {}),
         oauth: {
           accessToken: token.access_token,
           refreshToken: token.refresh_token,

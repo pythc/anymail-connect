@@ -13,11 +13,19 @@ export async function runtime() {
   const service = new MailService(
     store,
     vault,
-    makeFactory(store, vault, {
-      privateEndpoints: c.PRIVATE_ENDPOINTS.split(",")
-        .map((s) => s.trim())
+    makeFactory(
+      store,
+      vault,
+      {
+        privateEndpoints: c.PRIVATE_ENDPOINTS.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      },
+      undefined,
+      c.JMAP_ALLOWED_ORIGINS.split(",")
+        .map((x) => x.trim())
         .filter(Boolean),
-    }),
+    ),
     c.BASE_URL,
   );
   return { config: c, db, service };

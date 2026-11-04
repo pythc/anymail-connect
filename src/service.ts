@@ -227,6 +227,10 @@ export class MailService {
         "DELETE FROM documents WHERE account_id=$1 AND tenant=$2 AND owner=$3",
         [accountId, p.tenant, p.subject],
       );
+      await tx.query(
+        "DELETE FROM change_requests WHERE account_id=$1 AND tenant=$2 AND owner=$3",
+        [accountId, p.tenant, p.subject],
+      );
       await this.store.audit(
         p,
         accountId,
@@ -738,7 +742,7 @@ export class MailService {
     );
     return result;
   }
-  async tick() {
+  async tick(signal?: AbortSignal) {
     // A crash at the external submission boundary cannot safely be retried.
     await this.store.db.query(
       "UPDATE operations SET state='unknown',data=jsonb_set(jsonb_set(data,'{state}','\"unknown\"'),'{failure}','\"SEND_STATUS_UNKNOWN\"') WHERE state='submitting' AND (data->>'submittedAt')::timestamptz < now()-interval '2 minutes'",
@@ -752,6 +756,7 @@ export class MailService {
       "SELECT tenant,owner,client,id FROM operations WHERE state='approved' AND due_at<=now() ORDER BY due_at LIMIT 20",
     );
     for (const row of rows.rows) {
+      if (signal?.aborted) break;
       const p = {
         tenant: row.tenant,
         subject: row.owner,

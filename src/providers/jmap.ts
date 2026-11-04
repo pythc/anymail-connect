@@ -19,9 +19,17 @@ export class JmapProvider implements MailProvider {
   constructor(
     private config: Config,
     private http: HttpRequest,
+    private allowedOrigins: string[] = [],
   ) {}
   private checked(url: string) {
-    if (new URL(url).origin !== new URL(this.config.sessionUrl).origin)
+    const target = new URL(url);
+    if (
+      target.protocol !== "https:" ||
+      target.username ||
+      target.password ||
+      (target.origin !== new URL(this.config.sessionUrl).origin &&
+        !this.allowedOrigins.includes(target.origin))
+    )
       throw new MailError("JMAP_CROSS_ORIGIN_DENIED", 403);
     return url;
   }

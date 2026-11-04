@@ -125,6 +125,25 @@ test("JMAP session, query, attachment and submission contracts", async (t) => {
     },
   );
   await t.test(
+    "explicit administrator origin allows a split JMAP API and remains exact",
+    async () => {
+      crossOrigin = true;
+      const c = {
+        provider: "jmap" as const,
+        email: "test@example.com",
+        sessionUrl: "https://jmap.invalid/session",
+        token: "synthetic-token",
+      };
+      const allowed = new JmapProvider(c, http, ["https://evil.invalid"]);
+      assert.equal((await allowed.get("m")).id, "m");
+      await assert.rejects(
+        new JmapProvider(c, http, ["https://evil.invalid:8443"]).get("m"),
+        /CROSS_ORIGIN/,
+      );
+      crossOrigin = false;
+    },
+  );
+  await t.test(
     "session cannot redirect stored token to another origin",
     async () => {
       crossOrigin = true;

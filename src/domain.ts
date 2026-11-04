@@ -59,6 +59,7 @@ export const connectionSchema = z.discriminatedUnion("provider", [
   z
     .object({
       provider: z.literal("graph"),
+      cloud: z.enum(["global", "usgov", "usgovdod", "china"]).default("global"),
       email: z.string().email(),
       mailbox: z.string().email().optional(),
       oauth: oauthCredentialSchema,
@@ -251,6 +252,18 @@ export interface MailProvider {
     input: Record<string, unknown>,
   ): Promise<unknown>;
   sync?(checkpoint: any, folder?: string): Promise<SyncPage>;
+  watch?(
+    folder: string,
+    onChange: () => void,
+    signal: AbortSignal,
+  ): Promise<void>;
+  subscribe?(options: {
+    callback: string;
+    clientState: string;
+    topic?: string;
+    id?: string;
+  }): Promise<{ id: string; expiresAt: string }>;
+  unsubscribe?(id: string): Promise<void>;
 }
 export const baseCapabilities: Capabilities = {
   read: "native",
