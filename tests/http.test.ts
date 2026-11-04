@@ -144,6 +144,19 @@ test("HTTP identity, CSRF, private files and actual MCP transport", async (t) =>
         { requestInit: { headers: { authorization: "Bearer lab-token" } } },
       );
       const client = new Client({ name: "anymail-test-client", version: "1" });
+      const selectedMessage = "message:/ ü%2F",
+        selectedAttachment = "part:/ ü%2F",
+        attachment = f.service.attachment.bind(f.service),
+        attachmentCalls: string[][] = [];
+      f.service.attachment = async (p, accountId, messageId, attachmentId) => {
+        attachmentCalls.push([messageId, attachmentId]);
+        if (
+          messageId !== selectedMessage ||
+          attachmentId !== selectedAttachment
+        )
+          throw new MailError("NOT_FOUND", 404);
+        return attachment(p, accountId, messageId, attachmentId);
+      };
       try {
         await client.connect(transport);
         const list = await client.listTools();
@@ -163,8 +176,8 @@ test("HTTP identity, CSRF, private files and actual MCP transport", async (t) =>
           name: "attachments_export",
           arguments: {
             account_id: f.account.id,
-            message_id: "m1",
-            attachment_id: "part:/ ü",
+            message_id: selectedMessage,
+            attachment_id: selectedAttachment,
           },
         });
         const link = (exported.content as any[]).find(
@@ -176,6 +189,16 @@ test("HTTP identity, CSRF, private files and actual MCP transport", async (t) =>
           Buffer.from((file.contents[0] as any).blob, "base64").toString(),
           "test",
         );
+        assert.deepEqual(attachmentCalls, [
+          [selectedMessage, selectedAttachment],
+          [selectedMessage, selectedAttachment],
+        ]);
+        await assert.rejects(
+          client.readResource({
+            uri: `anymail://attachment/${f.account.id}/bad%ZZ/part`,
+          }),
+          /INVALID_RESOURCE_ID/,
+        );
         const ui = await client.readResource({ uri: "ui://anymail/preview" });
         assert.match(
           (ui.contents[0] as any).text,
@@ -183,6 +206,7 @@ test("HTTP identity, CSRF, private files and actual MCP transport", async (t) =>
         );
         assert.match((ui.contents[0] as any).text, /收件人/);
       } finally {
+        f.service.attachment = attachment;
         await client.close();
       }
     },

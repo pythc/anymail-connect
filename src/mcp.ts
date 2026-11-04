@@ -7,6 +7,14 @@ import { z } from "zod";
 import { MailError, type Principal } from "./domain.js";
 import { tools } from "./tools.js";
 import type { MailService } from "./service.js";
+function decodeResourceId(value: unknown) {
+  const encoded = z.string().parse(value);
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    throw new MailError("INVALID_RESOURCE_ID");
+  }
+}
 export function mcp(service: MailService, principal: Principal) {
   const server = new McpServer(
     { name: "anymail-connect", version: "0.3.0" },
@@ -107,8 +115,8 @@ export function mcp(service: MailService, principal: Principal) {
       const a = await service.attachment(
         principal,
         z.string().uuid().parse(vars.account),
-        z.string().parse(vars.message),
-        z.string().parse(vars.attachment),
+        decodeResourceId(vars.message),
+        decodeResourceId(vars.attachment),
       );
       return {
         contents: [
