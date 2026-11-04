@@ -12,7 +12,14 @@ import type { MailService } from "./service.js";
 import { tools } from "./tools.js";
 import { mcp } from "./mcp.js";
 import { ProviderOAuth } from "./provider-oauth.js";
-import { page, style, script, escape, approvalPage } from "./ui.js";
+import {
+  connectionPage,
+  connectionScript,
+  browserStyle,
+  document,
+  escape,
+  approvalPage,
+} from "./browser-pages.js";
 import { PushService, gmailPushVerifier, type PushVerify } from "./push.js";
 type Session = {
   principal: Principal;
@@ -119,7 +126,7 @@ export async function app(
       throw new MailError("CSRF_REQUIRED", 403);
     return s.principal;
   }
-  f.get("/healthz", async () => ({ status: "ok", version: "0.3.0" }));
+  f.get("/healthz", async () => ({ status: "ok", version: "0.4.0" }));
   const push = new PushService(service, config);
   f.get("/api/push/:account", async (req) =>
     push.status(
@@ -185,12 +192,21 @@ export async function app(
     authorization_servers: [config.OIDC_ISSUER],
     scopes_supported: ["mail.read", "mail.write", "mail.send"],
   }));
-  f.get("/", async (_req, reply) => reply.type("text/html").send(page));
-  f.get("/style.css", async (_req, reply) =>
-    reply.type("text/css").send(style),
+  f.get("/", async () => ({
+    name: "anymail-connect",
+    version: "0.4.0",
+    mcp: "/mcp",
+    mailbox_authorization: "/connect",
+    resource_metadata: "/.well-known/oauth-protected-resource",
+  }));
+  f.get("/connect", async (_req, reply) =>
+    reply.type("text/html").send(connectionPage),
   );
-  f.get("/app.js", async (_req, reply) =>
-    reply.type("text/javascript").send(script),
+  f.get("/browser.css", async (_req, reply) =>
+    reply.type("text/css").send(browserStyle),
+  );
+  f.get("/connect.js", async (_req, reply) =>
+    reply.type("text/javascript").send(connectionScript),
   );
   f.get("/auth/login", async (_req, reply) => {
     if (!settings) throw new MailError("OIDC_NOT_CONFIGURED", 503);
@@ -271,7 +287,7 @@ export async function app(
       path: "/",
       maxAge: Math.floor((value.expiresAt - Date.now()) / 1000),
     });
-    return reply.redirect("/");
+    return reply.redirect("/connect");
   });
   f.get("/api/me", async (req) => {
     const s = await session(req);
@@ -401,7 +417,7 @@ export async function app(
     const p = (await session(req)).principal,
       q = z.object({ state: z.string(), code: z.string() }).parse(req.query);
     await oauth.callback(p, q.state, q.code);
-    return reply.redirect("/");
+    return reply.redirect("/connect");
   });
   f.get("/message/:account/:message", async (req, reply) => {
     if (!req.cookies.anymail_session) return reply.redirect("/auth/login");
@@ -411,7 +427,10 @@ export async function app(
     return reply
       .type("text/html")
       .send(
-        `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>${escape(m.subject)}</title><link rel="stylesheet" href="/style.css"><main><h1>${escape(m.subject)}</h1><p>${escape(m.from)} · ${escape(m.date)}</p><p>${escape((m.warnings ?? []).join(" · "))}</p><pre>${escape(m.text)}</pre><a href="/">返回</a></main></html>`,
+        document(
+          m.subject,
+          `<h1>${escape(m.subject)}</h1><p>${escape(m.from)} · ${escape(m.date)}</p><p>${escape((m.warnings ?? []).join(" · "))}</p><pre>${escape(m.text)}</pre>`,
+        ),
       );
   });
   f.get("/approve/:id", async (req, reply) => {
@@ -446,7 +465,10 @@ export async function app(
     return reply
       .type("text/html")
       .send(
-        `<html lang="zh-CN"><meta charset="utf-8"><main><h1>已批准</h1><p>操作 ${escape(op.id)} 已进入持久队列，后台将按计划提交。</p><a href="/">返回</a></main></html>`,
+        document(
+          "Submission approved",
+          `<h1>Submission approved</h1><p>Operation ${escape(op.id)} is in the durable queue. The worker will submit it when due.</p>`,
+        ),
       );
   });
   f.all("/mcp", async (req, reply) => {

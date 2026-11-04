@@ -18,8 +18,7 @@ export function enhancements(s: MailService): Tool[] {
     schema: z.ZodObject<any>,
     readOnly: boolean,
     run: Tool["run"],
-    ui = false,
-  ) => t.push({ name, description, schema, readOnly, run, ui });
+  ) => t.push({ name, description, schema, readOnly, run });
   add(
     "data_policy",
     "Read deployment retention/extraction policy. Zero days disables automatic deletion. Send ledger retained; attachment indexing is explicit.",
@@ -81,7 +80,6 @@ export function enhancements(s: MailService): Tool[] {
       .strict(),
     false,
     (p, i) => native.bind(p, i.account_id, i.remote_id, i.auto_push),
-    true,
   );
   add(
     "native_drafts_list",
@@ -94,7 +92,6 @@ export function enhancements(s: MailService): Tool[] {
       .strict(),
     true,
     (p, i) => native.list(p, i.account_id, i.offset),
-    true,
   );
   add(
     "native_drafts_inspect",
@@ -102,7 +99,6 @@ export function enhancements(s: MailService): Tool[] {
     z.object({ account_id: account, binding_id: account }).strict(),
     true,
     (p, i) => native.inspect(p, i.account_id, i.binding_id),
-    true,
   );
   add(
     "native_drafts_sync",
@@ -126,7 +122,6 @@ export function enhancements(s: MailService): Tool[] {
         i.revision,
         i.remote_version,
       ),
-    true,
   );
   add(
     "native_drafts_stop",
@@ -165,7 +160,6 @@ export function enhancements(s: MailService): Tool[] {
         authentication: "current user required",
       };
     },
-    true,
   );
   add(
     "attachments_import_file",

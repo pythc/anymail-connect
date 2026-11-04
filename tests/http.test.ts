@@ -122,15 +122,24 @@ test("HTTP identity, CSRF, private files and actual MCP transport", async (t) =>
     },
   );
   await t.test(
-    "UI has external scripts, CSP and no HTML interpolation from emails",
+    "backend discovery is JSON and browser authorization stays narrowly scoped",
     async () => {
       const r = await server.inject({ url: "/", headers });
       assert.equal(r.statusCode, 200);
+      assert.equal(r.json().mcp, "/mcp");
+      assert.equal(r.json().mailbox_authorization, "/connect");
+      const connect = await server.inject({ url: "/connect", headers });
       assert.match(
-        r.headers["content-security-policy"] as string,
+        connect.headers["content-security-policy"] as string,
         /frame-ancestors 'none'/,
       );
-      assert.match(r.body, /app.js/);
+      assert.match(connect.body, /lang="en"/);
+      assert.match(connect.body, /connect.js/);
+      assert.doesNotMatch(connect.body, /id="(?:search|draft|messages)"/);
+      assert.equal(
+        (await server.inject({ url: "/app.js", headers })).statusCode,
+        404,
+      );
     },
   );
   await t.test(
@@ -199,12 +208,10 @@ test("HTTP identity, CSRF, private files and actual MCP transport", async (t) =>
           }),
           /INVALID_RESOURCE_ID/,
         );
-        const ui = await client.readResource({ uri: "ui://anymail/preview" });
-        assert.match(
-          (ui.contents[0] as any).text,
-          /ui\/notifications\/initialized/,
-        );
-        assert.match((ui.contents[0] as any).text, /收件人/);
+        const resources = await client.listResources();
+        assert.ok(!resources.resources.some((r) => r.uri.startsWith("ui://")));
+        const listed = await client.listTools();
+        assert.ok(listed.tools.every((tool) => !tool._meta?.ui));
       } finally {
         f.service.attachment = attachment;
         await client.close();

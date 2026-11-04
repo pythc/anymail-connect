@@ -90,7 +90,7 @@ export async function notificationStatus(
         }
       : {}),
     fallback: "periodic_reconciliation",
-    manage_url: s.baseUrl,
+    manage_url: `${s.baseUrl}/api/push/${id}`,
   };
 }
 export class PushService {

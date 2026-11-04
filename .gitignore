@@ -16,3 +16,14 @@ coverage/
 .DS_Store
 .test-certs/
 .artifacts/
+
+# Personal planning, live-account acceptance and generated test output
+/TODO.md
+/work/
+/outputs/
+/backups/
+/playwright-report/
+/test-results/
+__pycache__/
+*.pyc
+*.tsbuildinfo

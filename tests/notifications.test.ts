@@ -528,7 +528,12 @@ test("push management scope, read-only mailbox and failed renewal continuity", a
       await push.enable(alice, f.account.id);
       assert.equal((await post("disable")).statusCode, 403);
       assert.equal(provider.stopped.length, 0);
-      assert.equal((await push.status(read, f.account.id)).enabled, true);
+      const status = await push.status(read, f.account.id);
+      assert.equal(status.enabled, true);
+      assert.equal(
+        status.manage_url,
+        `${f.service.baseUrl}/api/push/${f.account.id}`,
+      );
       assert.equal(
         (await server.inject({ url: "/api/push/" + f.account.id, headers }))
           .statusCode,

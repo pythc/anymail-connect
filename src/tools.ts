@@ -58,7 +58,6 @@ export type Tool = {
   schema: z.ZodObject<any>;
   readOnly: boolean;
   destructive?: boolean;
-  ui?: boolean;
   fileParams?: string[];
   run: (p: Principal, input: any) => Promise<unknown>;
 };
@@ -71,13 +70,12 @@ export function tools(s: MailService): Tool[] {
     readOnly: boolean,
     run: Tool["run"],
     destructive = false,
-    ui = false,
   ) {
-    t.push({ name, description, schema, readOnly, run, destructive, ui });
+    t.push({ name, description, schema, readOnly, run, destructive });
   }
   add(
     "notifications_status",
-    "Inspect this account's native push setup or IMAP worker assignment, plus the authenticated management URL. Periodic reconciliation remains a fallback. A worker lease does not prove a connected IDLE socket; notifications do not initiate AI conversations.",
+    "Inspect this account's native push setup or IMAP worker assignment, plus the authenticated status URL. Periodic reconciliation remains a fallback. A worker lease does not prove a connected IDLE socket; notifications do not initiate AI conversations.",
     z.object({ account_id: account }).strict(),
     true,
     (p, i) => notificationStatus(s, p, i.account_id),
@@ -154,8 +152,6 @@ export function tools(s: MailService): Tool[] {
     z.object({ account_id: account, search: searchSchema }).strict(),
     true,
     (p, i) => s.search(p, i.account_id, i.search),
-    false,
-    true,
   );
   add(
     "messages_get",
@@ -163,8 +159,6 @@ export function tools(s: MailService): Tool[] {
     z.object({ account_id: account, message_id: identifier }).strict(),
     true,
     (p, i) => s.get(p, i.account_id, i.message_id),
-    false,
-    true,
   );
   add(
     "messages_batch_get",

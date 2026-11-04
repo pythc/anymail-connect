@@ -1,4 +1,4 @@
-import { approvalPage } from "../src/ui.js";
+import { approvalPage } from "../src/browser-pages.js";
 import { hash } from "../src/crypto.js";
 import { tools } from "../src/tools.js";
 import test from "node:test";
