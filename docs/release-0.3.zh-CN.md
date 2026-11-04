@@ -1,6 +1,6 @@
 # 0.3.0 剩余开发项与验证
 
-日期：2026-11-04。本轮针对 TODO 中剩余可开发的功能；真账号、云端配置、宿主安装、生产验收和许可证决策保留为外部事项。review/远程 CI 完成前不写为交付成功。
+日期：2026-11-04。本轮针对 TODO 中剩余可开发的功能；真账号、云端配置、宿主安装、生产验收和许可证决策保留为外部事项。代码交付的实际回执见下文，不能等同于外部产品验收。
 
 ## 实现范围
 
@@ -26,7 +26,7 @@
 
 实际 Tesseract 容器测试识别合成图片 `Invoice 12345`。浏览器测试覆盖原管理界面、共享权限、MCP Apps 阅读/编辑/Bcc/确认链接/文件能力缺失/移动布局。实际 Keycloak 启用 introspection 后，验证有效登录与保留本地会话时 IdP 撤销导致 API 401；模板补充 introspection 客户端 audience，未绕过 active 或 audience 检查。
 
-正式 Security diff scan 已完成：冻结差异 `7321d79..5a3f968` 审查 36 个源文件及全部 21 个配套变更，EWS 同类邮箱边界问题按 8 条可达操作分别记录（2 medium、6 low）。封存结果保留，随后修复全部操作并定向复审、回归；详见 [0.3 审查记录](review-0.3.zh-CN.md)。最终镜像 `sha256:254a864e8fb7bd3d32cad25ef9787c11a694c657bb0a97d899fce8125e78c1f2` 的实际 OCR 与空库 worker 启动/正常退出已验证。远程 CI 回执在推送后记录。以上测试不是实际 People/CardDAV/Exchange/Graph/Gmail 云账号验收。
+正式 Security diff scan 已完成：冻结差异 `7321d79..5a3f968` 审查 36 个源文件及全部 21 个配套变更，EWS 同类邮箱边界问题按 8 条可达操作分别记录（2 medium、6 low）。封存结果保留，随后修复全部操作并定向复审、回归；详见 [0.3 审查记录](review-0.3.zh-CN.md)。最终镜像 `sha256:254a864e8fb7bd3d32cad25ef9787c11a694c657bb0a97d899fce8125e78c1f2` 的实际 OCR 与空库 worker 启动/正常退出已验证。代码提交 [`71b4ec2`](https://github.com/pythc/anymail-connect/commit/71b4ec225ed3e54162b113565825ff7a743c2c81) 的 [GitHub CI](https://github.com/pythc/anymail-connect/actions/runs/41764190975) 已全部通过（check/browser），日志确认两套 122 项、实际 OCR 与 Keycloak 撤销通过。以上测试不是实际 People/CardDAV/Exchange/Graph/Gmail 云账号验收。
 
 ## 配置和升级
 

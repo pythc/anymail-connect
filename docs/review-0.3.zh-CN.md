@@ -40,4 +40,6 @@ Codex Security diff scan：`cfd6bffb-86ac-4720-ad45-f69ba57feae1`，已完成封
 
 真实邮箱、ChatGPT 宿主安装、OAuth 公共审核、公网部署、生产压测/灾难恢复/回滚和许可证决策仍未完成。Graph 原生草稿单文件达到 3MB 的上传会话、NTLM/Kerberos、扫描 PDF OCR、完整 Office 转换和全邮箱语义索引不在当前实现能力内。依赖审计和解析资源限制不等于第三方审计或 OS 恶意文件沙箱。
 
-推送与远程 CI 使用实际提交回执更新；本机结果不替代远程成功。
+公开仓库 `pythc/anymail-connect`，代码提交 [`71b4ec225ed3e54162b113565825ff7a743c2c81`](https://github.com/pythc/anymail-connect/commit/71b4ec225ed3e54162b113565825ff7a743c2c81) 的 [CI run 41764190975](https://github.com/pythc/anymail-connect/actions/runs/41764190975) 两项任务全部 success。已读取 check/browser 实际日志：PGlite 和 PostgreSQL 各 122/122，0 fail/skip；实际 Tesseract、浏览器、Keycloak 撤销通过，审计 0 漏洞。此回执对应代码提交；后续文档回执提交的状态可按最新 SHA 在 Actions 核对。
+
+本轮创建的临时 PostgreSQL/Keycloak/worker 容器已清理，未连接真实邮箱或发送真实邮件。
