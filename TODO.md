@@ -12,8 +12,8 @@
 
 ## 邮件与适配器
 - [x] IMAP/SMTP：查读、附件、文件夹、UIDVALIDITY、标记/移动/垃圾箱、发送
-- [x] Gmail API：查读/线程/附件、标签、原生草稿、发送
-- [x] Microsoft Graph：查读/附件、文件夹/分类、联系人、共享邮箱、发送
+- [x] Google Gmail 个人 / Google Workspace 企业邮箱：Gmail API 查读/线程/附件、标签、原生草稿、发送及 People 联系人
+- [x] Outlook.com / Hotmail / Live 个人、Microsoft 365 / Exchange Online 企业邮箱：Graph 查读/附件、文件夹/分类、联系人、委派共享邮箱、发送
 - [x] JMAP：会话发现、查读/附件、邮箱与提交
 - [x] 应用草稿 CRUD、并发 revision、回复/全部回复/转发、显式原附件复制
 - [x] 受保护附件上传/下载、HTML 清洗与大小限制
