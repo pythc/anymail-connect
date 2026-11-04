@@ -21,6 +21,8 @@ Codex Security diff scan：`cfd6bffb-86ac-4720-ad45-f69ba57feae1`，已完成封
 - MCP Apps 保存期间保留新输入并采用保存结果的 revision；选择变化、准备期间编辑后不显示旧确认链接。搜索/阅读响应有序号保护，新搜索立即清除旧分页。
 - 共享私有数据说明明确指应用草稿；原生草稿仍是共享邮箱内容。在线 token 撤销与已批准发送/已启用自动写回的持久授权分别说明。
 
+首轮远程 CI 的浏览器步骤检出移动端数据保留 JSON 溢出（检查/数据库/OCR/审计均通过）。改为中文策略说明，新增较宽回退字体断言；本地使用与 CI 同版本的 Playwright Chromium 验证。随后远程浏览器交互通过，OIDC 用例检出退出后立即登录的导航竞争；用例改为等待完整退出导航，实际 Keycloak 本地复跑通过，未调整业务鉴权。
+
 复核覆盖改动本身、调用链及负例，不以缺少现场账号作为安全反证。
 
 ## 已执行验证
@@ -30,7 +32,7 @@ Codex Security diff scan：`cfd6bffb-86ac-4720-ad45-f69ba57feae1`，已完成封
 - 浏览器桌面/移动布局、共享授权、MCP Apps 编辑/Bcc/可信确认链接；保存/准备期间新输入、同账号搜索乱序、旧分页失效、远端 404 时仍可停止关联均通过。浏览器夹具没有真实邮箱副作用。
 - 实际 Keycloak 26.8.1 登录、PKCE/JWKS/scope/cookie/CSRF，以及本地会话仍存在时 IdP 撤销使 API 返回 401。
 - 构建、格式、差异检查通过；`npm audit --omit=dev --audit-level=high` 返回 0 项漏洞。
-- 最终镜像 `sha256:dcf578dd142f6025d4ce46d76d48c639f5576769253c26dfba82e71708e7069e`：实际 Tesseract 在 Linux 资源限制下识别合成图片；编译 worker 在隔离 PostgreSQL v3 启动，SIGTERM 后退出码 0。迁移测试保留 v1/v2→v3 和原始旧迁移拒绝 v3 的证据。
+- 最终镜像 `sha256:254a864e8fb7bd3d32cad25ef9787c11a694c657bb0a97d899fce8125e78c1f2`：实际 Tesseract 在 Linux 资源限制下识别合成图片；编译 worker 在隔离 PostgreSQL v3 启动，SIGTERM 后退出码 0。迁移测试保留 v1/v2→v3 和原始旧迁移拒绝 v3 的证据。
 
 扫描工具的累计测量口径：totalTokens 16,248,884，inputTokens 16,177,815，其中 cachedInputTokens 15,685,504；outputTokens 71,069，coverage complete，6 个线程。输入含重复上下文与缓存读取，不表示同量新增 token 或费用；不进行成本估算。
 

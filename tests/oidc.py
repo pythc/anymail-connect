@@ -27,10 +27,10 @@ with sync_playwright() as p:
     cookies = {c['name']:c for c in context.cookies()}
     assert cookies['anymail_session']['httpOnly']
     assert cookies['anymail_session']['sameSite'] == 'Lax'
-    with page.expect_response(lambda r:r.url.endswith('/api/logout')) as logged_out:
-        page.locator('#logout').click()
+    with page.expect_navigation(url='http://localhost:4390/', wait_until='networkidle'):
+        with page.expect_response(lambda r:r.url.endswith('/api/logout')) as logged_out:
+            page.locator('#logout').click()
     assert logged_out.value.status == 200
-    page.wait_for_load_state('networkidle')
     assert page.request.get('http://localhost:4390/api/me').status == 401
     page.goto('http://localhost:4390/auth/login')
     page.wait_for_url('http://localhost:4390/')

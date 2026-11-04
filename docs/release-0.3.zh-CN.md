@@ -26,7 +26,7 @@
 
 实际 Tesseract 容器测试识别合成图片 `Invoice 12345`。浏览器测试覆盖原管理界面、共享权限、MCP Apps 阅读/编辑/Bcc/确认链接/文件能力缺失/移动布局。实际 Keycloak 启用 introspection 后，验证有效登录与保留本地会话时 IdP 撤销导致 API 401；模板补充 introspection 客户端 audience，未绕过 active 或 audience 检查。
 
-正式 Security diff scan 已完成：冻结差异 `7321d79..5a3f968` 审查 36 个源文件及全部 21 个配套变更，EWS 同类邮箱边界问题按 8 条可达操作分别记录（2 medium、6 low）。封存结果保留，随后修复全部操作并定向复审、回归；详见 [0.3 审查记录](review-0.3.zh-CN.md)。最终镜像 `sha256:dcf578dd142f6025d4ce46d76d48c639f5576769253c26dfba82e71708e7069e` 的实际 OCR 与空库 worker 启动/正常退出已验证。远程 CI 回执在推送后记录。以上测试不是实际 People/CardDAV/Exchange/Graph/Gmail 云账号验收。
+正式 Security diff scan 已完成：冻结差异 `7321d79..5a3f968` 审查 36 个源文件及全部 21 个配套变更，EWS 同类邮箱边界问题按 8 条可达操作分别记录（2 medium、6 low）。封存结果保留，随后修复全部操作并定向复审、回归；详见 [0.3 审查记录](review-0.3.zh-CN.md)。最终镜像 `sha256:254a864e8fb7bd3d32cad25ef9787c11a694c657bb0a97d899fce8125e78c1f2` 的实际 OCR 与空库 worker 启动/正常退出已验证。远程 CI 回执在推送后记录。以上测试不是实际 People/CardDAV/Exchange/Graph/Gmail 云账号验收。
 
 ## 配置和升级
 
